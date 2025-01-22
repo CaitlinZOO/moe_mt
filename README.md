@@ -149,8 +149,9 @@ For more information, please refer to [Expert Construction docs](docs/expert_con
 
 
 <h2 id="sft">💬 Supervised Fine-Tuning (SFT)</h2>
+
     ```bash
-  ##训链参数是：
+     训链参数是：
   --dataset_save_dir ${data_dir}   ## 数据处理后保存的路径，如果已经有处理好的，直接加载
   --manifest_files ${dataset_dir_or_path}    ## 数据全路径文件，多个文件用 | 隔开，目前只能是json或者csv文件
   --input_fields "src_text|src_text"    ## 数据中指定的字段，作为gpt的输入
