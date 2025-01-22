@@ -159,6 +159,14 @@ class TrainingArguments(transformers.TrainingArguments):
         default=False,
         metadata={"help": "Whether to freeze the gate during training."},
     )
+    output_router_logits: bool = field(
+        default=True,
+        metadata={"help": "Whether to output router logits."},
+    )
+    use_layer_wise_balance: bool = field(
+        default=True,
+        metadata={"help": "Whether to use router BL loss."},
+    )
     save_final_ckpt: bool = field(
         default=True,
         metadata={"help": "Whether to save final checkpoint."},
@@ -226,6 +234,8 @@ def get_model(
     attn_impl: str = "flash_attention_2",
     cache_dir: str = None,
     trust_remote_code: bool = False,
+    output_router_logits: bool = True,
+    use_layer_wise_balance: bool = True,
     additional_config: dict = None,
 ):
     logger.info(f"Model type: {model_type}")
@@ -245,12 +255,14 @@ def get_model(
         trust_remote_code=trust_remote_code,
     )
     config._attn_implementation = attn_impl
+    config.output_router_logits = output_router_logits
+    config.use_layer_wise_balance = use_layer_wise_balance
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     print(" max_position_embeddings : {}    --".format(orig_ctx_len))
     if orig_ctx_len and model_max_length > orig_ctx_len:
         scaling_factor = float(math.ceil(model_max_length / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
-    config.use_cache = False
+    config.use_cache = True
     if additional_config is not None:
         config.update(additional_config)
     logger.info("Config ready")
@@ -285,6 +297,8 @@ def get_model_and_tokenizer(
     attn_impl: str = "flash_attention_2",
     cache_dir: str = None,
     trust_remote_code: bool = False,
+    output_router_logits: bool = True,
+    use_layer_wise_balance: bool = True,
     padding_side: str = "right",
     additional_config: dict = None,
     use_fast: bool = False,
@@ -307,6 +321,8 @@ def get_model_and_tokenizer(
         attn_impl=attn_impl,
         cache_dir=cache_dir,
         trust_remote_code=trust_remote_code,
+        output_router_logits=output_router_logits,
+        use_layer_wise_balance=use_layer_wise_balance,
         additional_config=additional_config,
     )
 
@@ -385,6 +401,8 @@ def train():
         padding_side=model_args.padding_side,
         torch_dtype=model_args.torch_dtype,
         additional_config=model_args.additional_config,
+        output_router_logits=training_args.output_router_logits,
+        use_layer_wise_balance=training_args.use_layer_wise_balance,
         attn_impl=model_args.attn_impl,
         model_max_length=training_args.model_max_length,
         cache_dir=training_args.cache_dir,

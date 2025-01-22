@@ -2372,7 +2372,7 @@ class Mixtral2GroupModel(Mixtral2GroupPreTrainedModel):
             if use_legacy_cache:
                 if self.config.use_attn_moe:  # 🔍
                     past_key_values = MoECache.from_legacy_cache(past_key_values)
-                else:  # 🔍
+                else:  # 🔍 ## 不需要修改 ？
                     past_key_values = DynamicCache.from_legacy_cache(past_key_values)
             past_key_values_length = past_key_values.get_usable_length(seq_length)
 
@@ -2559,6 +2559,10 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
     def _set_gradient_checkpointing(self, module, value=False):
         if isinstance(module, Mixtral2GroupModel):
             module.gradient_checkpointing = value
+    
+    def set_groups_used(self, groups_used):
+        self.model.set_groups_used(groups_used)
+        self.groups_used = groups_used
 
     # Ignore copy
     def forward(
@@ -2632,10 +2636,11 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
             # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
-            # print("MixtralForCausalLM, cross entropy loss", loss)
+            print("MixtralForCausalLM, cross entropy loss", loss)
 
         aux_loss = None
         if output_router_logits:
+            # import pdb; pdb.set_trace()
             aux_loss = 0
             if return_dict:
                 print(
@@ -2643,22 +2648,26 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                         len(outputs.router_logits), outputs.router_logits
                     )
                 )
-                print(
-                    "outputs.router_logits[0] : {} \n {}".format(
-                        len(outputs.router_logits[0]), outputs.router_logits[0]
-                    )
-                )
+                # outputs.router_logits : 16 
+                #   (None, None, None, [tensor([[ 2.3438e+00, -5.2500e+00
+
+                # print(
+                #     "outputs.router_logits[0] : {} \n {}".format(
+                #         len(outputs.router_logits[0]), outputs.router_logits[0]
+                #     )
+                # )
                 print(
                     "outputs.router_logits[3] : {} \n {}".format(
                         len(outputs.router_logits[3]), outputs.router_logits[3]
                     )
                 )
-                print(
-                    "outputs.router_logits[0][0] : {} \n {}".format(
-                        outputs.router_logits[0][0].shape, outputs.router_logits[0][0]
-                    )
-                )
+                # outputs.router_logits[3] 是list 长度是: 1 
+                #   [tensor([[ 2.3438e+00, -5
+                # hidden_states.shape    是： torch.Size([4, 42, 2048])
+                # outputs.router_logits[3][0].shape  是： torch.Size([168, 4])
+
             for group_idx in self.groups_used:
+                ## valid_router_logits 每组，几层，有几个
                 valid_router_logits = tuple(
                     logits[group_idx]
                     for logits in (
@@ -2666,6 +2675,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                     )
                     if logits is not None
                 )
+                # 第四层添加的router valid_router_logits[0].shape   是 torch.Size([168, 4])
 
                 aux_loss_one = load_balancing_loss_func(
                     valid_router_logits,
@@ -2676,6 +2686,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 aux_loss += aux_loss_one
 
             if labels is not None:
+                # import pdb; pdb.set_trace()
                 # loss += self.router_aux_loss_coef * aux_loss
                 loss_mlp = self.router_aux_loss_coef * aux_loss
                 loss = loss + loss_mlp

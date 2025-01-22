@@ -89,6 +89,8 @@ port=$(( 104 + 26100 ))
              --input_fields "id|id" \
              --output_fields "id|id" \
              --sample_probs "1|1" \
+             --output_router_logits True \
+             --use_layer_wise_balance True \
             \
             --output_dir $output_dir \
             --deepspeed conf/deepspeed/bf16_zero1.json \

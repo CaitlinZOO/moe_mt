@@ -118,7 +118,7 @@ class Mixtral2GroupConfig(PretrainedConfig):
             parameter
         num_local_experts (`int`, *optional*, defaults to 8):
             Number of experts per Sparse MLP layer.
-        output_router_logits (`bool`, *optional*, defaults to `False`):
+        output_router_logits (`bool`, *optional*, defaults to `True`):
             Whether or not the router logits should be returned by the model. Enabeling this will also
             allow the model to output the auxiliary loss. See [here]() for more details
         router_aux_loss_coef (`float`, *optional*, defaults to 0.001):
@@ -166,7 +166,7 @@ class Mixtral2GroupConfig(PretrainedConfig):
         num_local_experts_group1=4,  ## ex
         scale_factor: float = 1.0,  # 🔍  scale
         use_fft=True,
-        output_router_logits=False,
+        output_router_logits=False,  ## 应该默认是True
         router_aux_loss_coef=0.001,
         moe_type: str = "modulelist",  # 🔍
         num_moe_insert_layers: int = 4,  # 🔍 the number of layers that are not converted into MoE at each side of the model

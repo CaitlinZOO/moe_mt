@@ -88,9 +88,11 @@ port=$(( 104 + 26100 ))
              --manifest_files ${dataset_dir_or_path} \
              --instructions "${mt_instructions}" \
              --input_fields "src_text|src_text" \
-             --output_fields "src_text|src_text" \
+             --output_fields "tgt_text|tgt_text" \
              --sample_probs "1|1" \
              --padding_side "left" \
+             --output_router_logits True \
+             --use_layer_wise_balance True \
             \
             --output_dir $output_dir \
             --deepspeed conf/deepspeed/bf16_zero1.json \
