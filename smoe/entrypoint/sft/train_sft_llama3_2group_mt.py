@@ -413,7 +413,8 @@ def train():
     train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer)
     print("pad_id, tokenizer         : {}".format(tokenizer.pad_token_id))
     print("pad_id, generation_config : {}".format(generation_config.pad_token_id))
-    data_collator = TextInstructionDataCollator(pad_id=tokenizer.pad_token_id)
+    data_collator = TextInstructionDataCollator(pad_id=tokenizer.pad_token_id, padding_side=model_args.padding_side)
+    print("For use_cache, must      padding_side=left ")
     logger.info("train dataset ready")
 
     # Set seed before initializing model.

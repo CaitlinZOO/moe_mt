@@ -90,6 +90,7 @@ port=$(( 104 + 26100 ))
              --input_fields "src_text|src_text" \
              --output_fields "src_text|src_text" \
              --sample_probs "1|1" \
+             --padding_side "left" \
             \
             --output_dir $output_dir \
             --deepspeed conf/deepspeed/bf16_zero1.json \

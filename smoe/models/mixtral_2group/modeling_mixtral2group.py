@@ -681,6 +681,7 @@ class MoECache(Cache):
             key_states: torch.Tensor,
             value_states: torch.Tensor,
             layer_idx: int,
+            group_idx: int,
             expert_idx: int,  # 🔍
             cache_kwargs: Optional[Dict[str, Any]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -694,6 +695,8 @@ class MoECache(Cache):
                 The new value states to cache.
             layer_idx (`int`):
                 The index of the layer to cache the states for.
+            group_idx (`int`):
+                The index of the group to cache the states for.
             expert_idx (`int`):
                 🔍 The index of the expert to cache the states for.
             cache_kwargs (`Dict[str, Any]`, `optional`):
@@ -702,34 +705,36 @@ class MoECache(Cache):
         Return:
             A tuple containing the updated key and value states.
         """
-        if layer_idx not in self._seen_tokens[expert_idx]:  # 🔍
+        if layer_idx not in self._seen_tokens[group_idx][expert_idx]:  # 🔍
             # Update the number of seen tokens
-            self._seen_tokens[expert_idx][layer_idx] = key_states.shape[-2]
+            # import pdb; pdb.set_trace()
+            # print("key_states : {} \n {}".format(key_states.shape, key_states)) 
+            self._seen_tokens[group_idx][expert_idx][layer_idx] = key_states.shape[-2]
             # Update the cache
-            self.key_cache[expert_idx][layer_idx] = key_states
-            self.value_cache[expert_idx][layer_idx] = value_states
+            self.key_cache[group_idx][expert_idx][layer_idx] = key_states
+            self.value_cache[group_idx][expert_idx][layer_idx] = value_states
 
         else:  # 🔍
             # Update the number of seen tokens
-            self._seen_tokens[expert_idx][layer_idx] += key_states.shape[-2]
+            self._seen_tokens[group_idx][expert_idx][layer_idx] += key_states.shape[-2]
             # Update the cache
-            self.key_cache[expert_idx][layer_idx] = torch.cat([self.key_cache[expert_idx][layer_idx], key_states], dim=-2)
-            self.value_cache[expert_idx][layer_idx] = torch.cat([self.value_cache[expert_idx][layer_idx], value_states], dim=-2)
+            self.key_cache[group_idx][expert_idx][layer_idx] = torch.cat([self.key_cache[group_idx][expert_idx][layer_idx], key_states], dim=-2)
+            self.value_cache[group_idx][expert_idx][layer_idx] = torch.cat([self.value_cache[group_idx][expert_idx][layer_idx], value_states], dim=-2)
 
-        return self.key_cache[expert_idx][layer_idx], self.value_cache[expert_idx][layer_idx]
+        return self.key_cache[group_idx][expert_idx][layer_idx], self.value_cache[group_idx][expert_idx][layer_idx]
 
     def add_seen_tokens_total(self, new_token_num: int = 0) -> None:
         """🔍 Add the number of new tokens to the total number of seen tokens."""
         # THIS FUNCTION IS EXCLUSIVE FOR `MoECache`!
         self._seen_tokens_total += new_token_num
 
-    def get_seq_length(self, layer_idx: Optional[int] = None, expert_idx: Optional[int] = None) -> Union[List[List[int]], int]:  # 🔍
+    def get_seq_length(self, layer_idx: Optional[int] = None, group_idx: Optional[int] = None, expert_idx: Optional[int] = None) -> Union[List[List[int]], int]:  # 🔍
         """Returns the sequence length of the cached states. A layer & expert index can be optionally passed."""
-        if layer_idx is not None and expert_idx is not None:  # 🔍 return the length for specific layer & expert
-            if self.num_experts <= expert_idx or layer_idx not in self.key_cache[expert_idx]:  # 🔍
+        if layer_idx is not None and group_idx is not None and expert_idx is not None:  # 🔍 return the length for specific layer & expert
+            if self.num_experts <= expert_idx or layer_idx not in self.key_cache[group_idx][expert_idx]:  # 🔍
                 return 0
             else:
-                return self.key_cache[expert_idx][layer_idx].shape[-2]
+                return self.key_cache[group_idx][expert_idx][layer_idx].shape[-2]
 
         else:  # 🔍 return the total number of individual tokens the cache has seen
             return self._seen_tokens_total
@@ -738,13 +743,13 @@ class MoECache(Cache):
         """Returns the maximum sequence length of the cached states. MoECache does not have a maximum length."""
         return None
 
-    def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = None, expert_idx: Optional[int] = None) -> int:
+    def get_usable_length(self, new_seq_length: int, layer_idx: Optional[int] = None, group_idx: Optional[int] = None, expert_idx: Optional[int] = None) -> int:
         """Given the sequence length of the new inputs, returns the usable length of the cache."""
         # Cache without size limit -> all cache is usable
         # Cache with size limit -> if the length cache plus the length of the new inputs is larger the maximum cache
         #   length, we will need to evict part of the cache (and thus not all cache is usable)
         max_length = self.get_max_length()
-        previous_seq_length = self.get_seq_length(layer_idx, expert_idx)  # 🔍
+        previous_seq_length = self.get_seq_length(layer_idx, group_idx, expert_idx)  # 🔍
         if max_length is not None and previous_seq_length + new_seq_length > max_length:
             return max_length - new_seq_length
         return previous_seq_length
@@ -772,6 +777,7 @@ class MoECache(Cache):
             self,
             new_attention_mask: torch.BoolTensor,
             layer_idx: int,
+            group_idx: int,
             expert_idx: int,
     ) -> torch.BoolTensor:
         """
@@ -789,12 +795,12 @@ class MoECache(Cache):
             A tensor containing the updated attention_mask.
         """
         # Update the cache
-        if layer_idx not in self.attention_mask_cache[expert_idx]:  # 🔍 no attention mask cached, this is the first stroke
-            self.attention_mask_cache[expert_idx][layer_idx] = new_attention_mask
+        if layer_idx not in self.attention_mask_cache[group_idx][expert_idx]:  # 🔍 no attention mask cached, this is the first stroke
+            self.attention_mask_cache[group_idx][expert_idx][layer_idx] = new_attention_mask
         else:  # 🔍 concatenate along the seq_len dim
-            self.attention_mask_cache[expert_idx][layer_idx] = torch.cat([self.attention_mask_cache[expert_idx][layer_idx], new_attention_mask], dim=-1)
+            self.attention_mask_cache[group_idx][expert_idx][layer_idx] = torch.cat([self.attention_mask_cache[group_idx][expert_idx][layer_idx], new_attention_mask], dim=-1)
 
-        return self.attention_mask_cache[expert_idx][layer_idx]
+        return self.attention_mask_cache[group_idx][expert_idx][layer_idx]
 
 
 # 🔍 Modified from MixtralAttention
@@ -2092,7 +2098,7 @@ class Mixtral2GroupMoeBlock(nn.Module):
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
         )
-
+        ##   tensor              [tensor, tensor]
         return final_hidden_states, all_group_router_logits
 
 

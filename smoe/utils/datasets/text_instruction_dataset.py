@@ -311,7 +311,7 @@ def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1):
     return dataset
 
 
-def collate_tokens(values: List[List[int]], pad_id: int):
+def collate_tokens(values: List[List[int]], pad_id: int, padding_side: str = "right"):
     size = max(len(v) for v in values)
     batch_size = len(values)
     res = torch.LongTensor(batch_size, size).fill_(pad_id)
@@ -321,10 +321,12 @@ def collate_tokens(values: List[List[int]], pad_id: int):
         dst.copy_(src)
 
     for i, v in enumerate(values):
-        copy_tensor(torch.LongTensor(v), res[i][: len(v)])
+        if padding_side == "right":
+            copy_tensor(torch.LongTensor(v), res[i][: len(v)])
+        else:
+            copy_tensor(torch.LongTensor(v), res[i][-len(v):])
 
     return res
-
 
 @dataclass
 class TextInstructionDataCollator:
@@ -334,6 +336,7 @@ class TextInstructionDataCollator:
 
     # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
     pad_id: int = 128009
+    padding_side: str = "right"  ## default is "right", but for using the cache to text generation must be setted "left"
 
     def __call__(self, samples: List[Dict]):
         input_ids = [sample["input_ids"] for sample in samples]
@@ -343,9 +346,10 @@ class TextInstructionDataCollator:
         # print("attention_mask : {} \n {}".format(len(attention_mask), attention_mask))
         # print("labels : {} \n {}".format(len(labels), labels))
 
-        input_ids = collate_tokens(input_ids, self.pad_id)
-        attention_mask = collate_tokens(attention_mask, 0)  ## 1, 0
-        labels = collate_tokens(labels, -100)
+        input_ids = collate_tokens(input_ids, self.pad_id, padding_side= self.padding_side)
+        attention_mask = collate_tokens(attention_mask, 0, padding_side= self.padding_side)  ## 1, 0
+        labels = collate_tokens(labels, -100, padding_side= self.padding_side)
+
         # print("input_ids : {} \n {}".format(input_ids.shape, input_ids))
         # print("attention_mask : {} \n {}".format(attention_mask.shape, attention_mask))
         # print("labels : {} \n {}".format(labels.shape, labels))
