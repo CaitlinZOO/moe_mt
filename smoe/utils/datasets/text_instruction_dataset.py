@@ -185,7 +185,7 @@ def load_text_instruction_dataset(
     ):
         print("文件格式 是 .json ")
         raw_dataset = datasets.load_dataset(
-            data_files=manifest_files_list, split="train", streaming=False
+            "json", data_files=manifest_files_list, split="train", streaming=False
         )
     elif manifest_files_list[0].endswith("tsv"):
         print("文件格式 是 .tsv ")
