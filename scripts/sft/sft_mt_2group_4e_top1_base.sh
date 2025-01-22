@@ -44,7 +44,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 
     comment="Llama3.2-1B to mixtral-no-megablocks, 2group 4experts, top1"
     base_dir="/home/zhanglinlin/outputs/moe_mt/mixtral_2group"
-    output_dir="${base_dir}/sft_st/Llama-1B_2group_4experts_top1_fft-tt"
+    output_dir="${base_dir}/sft_mt/Llama-1B_2group_4experts_top1_fft-tt"
     data_dir=${output_dir}/data
     mkdir -p $output_dir $data_dir ${output_dir}/code
     cp -r ${ROOT}/pro/MoE/moe_mt/smoe ${output_dir}/code
@@ -71,13 +71,12 @@ echo "Request ${NUM_GPU} GPUs(${GPUS}) ."
 
 export CUDA_VISIBLE_DEVICES=${GPUS}
 port=$(( 104 + 26100 ))
-# torchrun --nproc_per_node ${NUM_GPU} --master_port ${port}
-#  CUDA_VISIBLE_DEVICES=0,1 python
-    # --deepspeed config/dp_config_zero1.json \ --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR
+
 # /home/zhanglinlin/anaconda3/envs/smoe/bin/python
 
+## 单机多卡设置
 # python -m torch.distributed.run --nproc_per_node=4 --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR --master_port=${port} \
-    CUDA_VISIBLE_DEVICES=4 python smoe/entrypoint/sft/train_sft_llama3_2group_st.py \
+    CUDA_VISIBLE_DEVICES=4 python smoe/entrypoint/sft/train_sft_llama3_2group_mt.py \
             --do_train \
             --freeze_gate False \
             --evaluation_strategy no \
@@ -115,5 +114,6 @@ port=$(( 104 + 26100 ))
             --model_max_length 1024 \
             --gradient_checkpointing True \
             --save_only_model True   | tee -a ${output_dir}/train-bsz8-t0.log
+    # --disable_tqdm True \
   ##--tf32 True \
 # }

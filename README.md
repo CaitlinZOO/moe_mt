@@ -149,15 +149,17 @@ For more information, please refer to [Expert Construction docs](docs/expert_con
 
 
 <h2 id="sft">💬 Supervised Fine-Tuning (SFT)</h2>
-
-（再训，参数是：
+    ```bash
+  ##训链参数是：
   --dataset_save_dir ${data_dir}   ## 数据处理后保存的路径，如果已经有处理好的，直接加载
   --manifest_files ${dataset_dir_or_path}    ## 数据全路径文件，多个文件用 | 隔开，目前只能是json或者csv文件
   --input_fields "src_text|src_text"    ## 数据中指定的字段，作为gpt的输入
   --output_fields "src_text|tgt_text"    ## 数据中指定的字段，作为gpt的生成
   --instructions "|"    ## 指令，一个数据文件对应一个，用 | 隔开， lm任务是空，没有指令，翻译任务比如是  "Please translate the English text into Spanish: | Please translate the English text into French: "
   目前的use_cache设置的False，还在改，generate的时候可能会比较慢
- ）
+   
+    ```
+
 - sft stage_1  lm : `bash scripts/sft/sft_lm_2group_4e_top1_base.sh`
 - sft stage_2  st : `bash scripts/sft/sft_mt_2group_4e_top1_base.sh`
 
