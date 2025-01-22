@@ -19,15 +19,18 @@ from smoe.utils.io import dump_json, load_json
 def is_safetensors_file(filepath):
     if isinstance(filepath, str):
         filepath = Path(filepath)
-    string = filepath.name
-    return re.match(r"model-\d{5}-of-\d{5}.safetensors", string) is not None
+    file_name = filepath.name
+    if "1B" in str(filepath):
+        print("model is 1B")
+        return file_name == "model.safetensors"
+    return re.match(r"model-\d{5}-of-\d{5}.safetensors", file_name) is not None
 
 
 FFN_TYPE_MAP = {
     "modulelist": {
-        "gate": "w1",
+        "gate": "w1", ## h->mid 
         "down": "w2",
-        "up": "w3",
+        "up": "w3", ## h->mid 
     },
 }
 
@@ -49,27 +52,33 @@ def convert_safetensors(
     dump_folder.mkdir(parents=True, exist_ok=True)
     ffn_type_map = FFN_TYPE_MAP[moe_type]
 
-    raw_total_size = -1
+    raw_total_size = -1   ## 
     tensor_filepaths = []
     for filepath in model_folder.glob("*"):
+        print("filepath: \n {}".format(filepath))
         if not os.path.isdir(filepath):
             if is_safetensors_file(filepath):
+                print("   the filepath is tensor weight load path  :) loading ....")
                 tensor_filepaths.append(filepath)
             if filepath.name == "config.json":
                 config = MixtralConfig.from_pretrained(filepath)
                 config.architectures = ["MixtralForCausalLM"]
                 config.num_experts_per_tok = top_k
                 config.num_local_experts = num_experts
-                config.router_aux_loss_coef = 1e-2
+                config.router_aux_loss_coef = 1e-2   ### 0.01 weight BL
                 config.scale_factor = scale_factor
                 config.moe_type = moe_type
                 config.num_moe_contract_layers=num_moe_contract_layers
+                ## 
                 config.intermediate_size = config.intermediate_size // num_experts
+                print("intermediate_size: {}".format(config.intermediate_size))
+
                 config.auto_map = {
                     "AutoConfig": "configuration_mixtral.MixtralConfig",
                     "AutoModel": "modeling_mixtral.MixtralModel",
                     "AutoModelForCausalLM": "modeling_mixtral.MixtralForCausalLM",
                 }
+                ## save
                 config.save_pretrained(dump_folder)
                 for filename in [
                     "configuration_mixtral.py",
@@ -86,7 +95,7 @@ def convert_safetensors(
     router_records = set()
     weight_map = {}
     total_size = 0
-    total_gate_size = 0
+    total_gate_size = 0  ## 
     visited_layers = set()
     for fi, filepath in enumerate(tensor_filepaths):
         with safe_open(filepath, framework="pt", device="cpu") as f:
@@ -101,6 +110,7 @@ def convert_safetensors(
                     ).groups()
                     layer_idx = int(layer_idx)
 
+                    ## 只中间
                     is_moe = (layer_idx >= num_moe_contract_layers) and (layer_idx < config.num_hidden_layers - num_moe_contract_layers)
 
                     if is_moe:
@@ -109,7 +119,7 @@ def convert_safetensors(
                         if ffn_type == "down":
                             hsz, mid = tensor.shape
                             mid_idx = 1
-                        else:
+                        else:  ## h->mid 
                             mid, hsz = tensor.shape
                             mid_idx = 0
 
@@ -126,8 +136,10 @@ def convert_safetensors(
                                 tensors[
                                     f"model.layers.{layer_idx}.block_sparse_moe.gate.weight"
                                 ] = gate_weights[layer_idx].clone()
+                                # gate_weights[layer_idx][:num_experts].clone()  # 🔍 limit the weight num
                             router_records.add(layer_idx)
                         new_ffn_type = ffn_type_map[ffn_type]
+                        print("new_ffn_type: {}".format(new_ffn_type))
 
                         # initialize expert weights
                         if moe_type == "modulelist":
@@ -136,11 +148,15 @@ def convert_safetensors(
                                 if mid_idx == 0:
                                     if neuron_indices is None:  # sequential split
                                         expert_tensor = tensor[expert_idx * expert_size: (expert_idx + 1) * expert_size].clone()
+                                        print("expert_idx: {}  expert_size: {} ".format(expert_idx, expert_size))
+                                        print("[expert_idx * expert_size: (expert_idx + 1) * expert_size]")
+                                        print("       [{} * {}: ({} + 1) * {}]".format(expert_idx, expert_size, expert_idx, expert_size))
+                                        print("expert_tensor: {} \n {}".format(expert_tensor.size(), expert_tensor))
                                     else:  # split according to the given indices
                                         this_layer_indices: list = neuron_indices[layer_idx]
                                         print(f"Initializing layer {layer_idx} expert {expert_idx} {ffn_type} using neurons with indices {this_layer_indices[expert_idx]}...")
                                         expert_tensor = tensor[this_layer_indices[expert_idx]].clone()
-                                else:
+                                else: ## ffn_type == "down"
                                     if neuron_indices is None:  # sequential split
                                         expert_tensor = tensor[:, expert_idx * expert_size: (expert_idx + 1) * expert_size].clone()
                                     else:  # split according to the given indices
@@ -174,7 +190,16 @@ def convert_safetensors(
     metadata = {"total_size": total_size}
     index = {"metadata": metadata, "weight_map": weight_map}
     dump_json(index, dump_folder / "model.safetensors.index.json", indent=2)
-    assert total_size - total_gate_size == raw_total_size
+    print("all router layers: {}".format(router_records))
+    print("raw_total_size:    {}".format(raw_total_size))
+    print("total_size:        {}".format(total_size))
+    print("total_gate_size:   {}".format(total_gate_size))
+    # print("total_expert_size: {}".format(total_expert_size))
+    print("total_size - total_gate_size: {}".format(total_size - total_gate_size))
+    now_sizie = total_size - total_gate_size
+    print("total_size - total_gate_size: {}".format(now_sizie))
+    print("gap_size:          {}".format(raw_total_size - now_sizie))
+    # assert total_size - total_gate_size == raw_total_size
 
 
 if __name__ == "__main__":

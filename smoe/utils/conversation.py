@@ -124,6 +124,7 @@ class Llama3ConversationTemplate(Conversation):
         self.message_template: str = (
             "<|start_header_id|>{role}<|end_header_id|>\n\n{message}<|eot_id|>"
         )
+        
         # define different message for user and assistant
         self.message_template_system: str = (
             "<|start_header_id|>{role}<|end_header_id|>\n\n{message}<|eot_id|>"
@@ -138,6 +139,7 @@ class Llama3ConversationTemplate(Conversation):
         self.message_template_human: str = "<|start_header_id|>{role}<|end_header_id|>\n\n{message}<|eot_id|><|start_header_id|>{role2}<|end_header_id|>\n\n"
         self.message_template_gpt: str = "{message}<|eot_id|>"
 
+        self.message_template_role: str = "<|start_header_id|>{role}<|end_header_id|>\n\n{message}<|eot_id|>"
         self.gen_template: str = "<|start_header_id|>{role}<|end_header_id|>"
         # The names of two roles
         self.fs_to_role = {"human": "user", "gpt": "assistant", "system": "system"}
@@ -216,6 +218,25 @@ class Llama3ConversationTemplate(Conversation):
         if add_eos:
             ret_input[-1] + self.eos
         return ret_input, group
+
+    @classmethod
+    def get_context_str(self, role: str = "", context: str = "please do it", add_eos: bool = False) -> str:
+        # conv = cls()
+        prompt_str = ""
+        if role == "" and context != "":
+            # prompt_str += self.message_template_gpt.format(message=context)
+            prompt_str += "{context}<|eot_id|>"
+        elif role != "" and context == "":
+            # prompt_str += self.gen_template.format(role=role)
+            prompt_str += "<|start_header_id|>{role}<|end_header_id|>"
+        else: ## 都不为空
+            # prompt_str += self.message_template_role.format(role=role, message=context)
+            prompt_str += "<|start_header_id|>{role}<|end_header_id|>\n\n{context}<|eot_id|>"
+        
+        if add_eos:
+            prompt_str += self.eos
+        return prompt_str
+
 
     @classmethod
     def parse(

@@ -45,11 +45,11 @@ from transformers.utils.import_utils import (
 
 from smoe.utils.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 
-from .configuration_mixtral import MixtralConfig
+from .configuration_mixtral2group import Mixtral2GroupConfig
 
 logger = logging.get_logger(__name__)
 
-_CONFIG_FOR_DOC = "MixtralConfig"
+_CONFIG_FOR_DOC = "Mixtral2GroupConfig"
 
 parsed_torch_version_base = version.parse(version.parse(torch.__version__).base_version)
 is_torch_greater_or_equal_than_1_13 = parsed_torch_version_base >= version.parse("1.13")
@@ -162,7 +162,7 @@ class MoeCausalLMOutputWithPast(ModelOutput):
     logits: torch.FloatTensor = None
     past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
-    attentions: Optional[Tuple[torch.FloatTensor]] = None
+    attentions: Optional[Tuple[List[torch.FloatTensor]]] = None
     router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
     @property
@@ -221,7 +221,7 @@ class MoeModelOutputWithPast(ModelOutput):
     past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
-    router_logits: Optional[Tuple[torch.FloatTensor]] = None
+    router_logits: Optional[Tuple[List[torch.FloatTensor]]] = None
     attn_router_logits: Optional[Tuple[torch.FloatTensor]] = None  # 🔍
 
 
@@ -245,7 +245,7 @@ if is_torch_fx_available():
 def load_balancing_loss_func(
     gate_logits: Union[torch.Tensor, Tuple],
     num_experts: torch.Tensor = None,
-    top_k=2,
+    top_k=1,
     use_layer_wise_balance=False,
 ) -> torch.FloatTensor:
     r"""
@@ -450,7 +450,7 @@ class MixtralAttention(nn.Module):
     and "Generating Long Sequences with Sparse Transformers".
     """
 
-    def __init__(self, config: MixtralConfig, layer_idx: Optional[int] = None):
+    def __init__(self, config: Mixtral2GroupConfig, layer_idx: Optional[int] = None):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -612,26 +612,27 @@ class MoECache(Cache):
     `[batch_size, num_heads, seq_len, head_dim]`.
     """
 
-    def __init__(self, num_experts: int) -> None:
+    def __init__(self, num_group_experts: List[int]) -> None:
         # 🔍 multi-experts support
-        self.num_experts = num_experts
-        self.key_cache: List[Dict[int, torch.Tensor]] = [{} for _ in range(num_experts)]
-        self.value_cache: List[Dict[int, torch.Tensor]] = [{} for _ in range(num_experts)]
-        self._seen_tokens: List[Dict[int, int]] = [{} for _ in range(num_experts)]  # Used in `generate` to keep tally of how many tokens the cache has seen
+        self.num_group_experts = num_group_experts
+        self.num_groups = len(num_group_experts)
+        self.key_cache: List[List[Dict[int, torch.Tensor]]] = [[{} for _ in range(num_experts)] for num_experts in num_group_experts]
+        self.value_cache: List[List[Dict[int, torch.Tensor]]] = [[{} for _ in range(num_experts)] for num_experts in num_group_experts]
+        self._seen_tokens: List[List[Dict[int, int]]] = [[{} for _ in range(num_experts)] for num_experts in num_group_experts]  # Used in `generate` to keep tally of how many tokens the cache has seen
         self._seen_tokens_total = 0  # 🔍 the total number of individual tokens that at least one expert has seen, this is for `get_seq_length` globally
 
-        self.attention_mask_cache: List[Dict[int, torch.BoolTensor]] = [{} for _ in range(num_experts)]  # 🔍 this is a new cache for attention mask that records the state of previous tokens
+        self.attention_mask_cache: List[List[Dict[int, torch.BoolTensor]]] = [[{} for _ in range(num_experts)] for num_experts in num_group_experts]  # 🔍 this is a new cache for attention mask that records the state of previous tokens
 
-    def __getitem__(self, layer_idx: int, expert_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, layer_idx: int, group_idx: int, expert_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Support for backwards-compatible `past_key_value` indexing, e.g. `past_key_value[0][0][0].shape[2]` to get the
         sequence length.
         """
         if layer_idx < len(self):
-            if expert_idx < self.num_experts:  # 🔍
-                return (self.key_cache[expert_idx][layer_idx], self.value_cache[expert_idx][layer_idx])
+            if expert_idx < self.num_group_experts[group_idx]:  # 🔍
+                return (self.key_cache[expert_idx][group_idx][layer_idx], self.value_cache[expert_idx][group_idx][layer_idx])
             else:  # 🔍
-                raise KeyError(f"Cache only has {self.num_experts} experts, attempted to access expert with index {expert_idx}")
+                raise KeyError(f"Cache only has {self.num_group_experts[group_idx]} experts, attempted to access expert with index {expert_idx}")
         else:
             raise KeyError(f"Cache only has {len(self)} layers, attempted to access layer with index {layer_idx}")
 
@@ -641,9 +642,10 @@ class MoECache(Cache):
         keys and values
         """
         for layer_idx in range(len(self)):
-            for expert_idx in range(self.num_experts):  # 🔍
-                if layer_idx in self.key_cache[expert_idx]:
-                    yield (self.key_cache[expert_idx][layer_idx], self.value_cache[expert_idx][layer_idx])
+            for group_idx in range(self.num_groups):
+                for expert_idx in range(self.num_group_experts[group_idx]):  # 🔍
+                    if layer_idx in self.key_cache[expert_idx][group_idx]:
+                        yield (self.key_cache[expert_idx][group_idx][layer_idx], self.value_cache[expert_idx][group_idx][layer_idx])
 
     def __len__(self):
         """
@@ -780,7 +782,7 @@ class MoECache(Cache):
 
 # 🔍 Modified from MixtralAttention
 class MixtralAttentionMoE(MixtralAttention):
-    def __init__(self, config: MixtralConfig, layer_idx: Optional[int] = None):
+    def __init__(self, config: Mixtral2GroupConfig, layer_idx: Optional[int] = None):
         super(MixtralAttention, self).__init__()  # 🔍 init using nn.Module
         self.config = config
         self.layer_idx = layer_idx
@@ -1705,7 +1707,7 @@ class MixtralFlashAttention2MoE(MixtralFlashAttention2):
 
 
 class MixtralBLockSparseTop2MLP(nn.Module):
-    def __init__(self, config: MixtralConfig, ffn_dim, add_rescale_bias=False):  # 🔍
+    def __init__(self, config: Mixtral2GroupConfig, ffn_dim, add_rescale_bias=False):  # 🔍
         super().__init__()
         self.ffn_dim = ffn_dim  # 🔍
         self.hidden_dim = config.hidden_size
@@ -1724,6 +1726,56 @@ class MixtralBLockSparseTop2MLP(nn.Module):
         )
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
+
+class LlamaMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, x):
+        if self.config.pretraining_tp > 1:
+            slice = self.intermediate_size // self.config.pretraining_tp
+            gate_proj_slices = self.gate_proj.weight.split(slice, dim=0)
+            up_proj_slices = self.up_proj.weight.split(slice, dim=0)
+            down_proj_slices = self.down_proj.weight.split(slice, dim=1)
+
+            gate_proj = torch.cat(
+                [F.linear(x, gate_proj_slices[i]) for i in range(self.config.pretraining_tp)], dim=-1
+            )
+            up_proj = torch.cat([F.linear(x, up_proj_slices[i]) for i in range(self.config.pretraining_tp)], dim=-1)
+
+            intermediate_states = (self.act_fn(gate_proj) * up_proj).split(slice, dim=2)
+            down_proj = [
+                F.linear(intermediate_states[i], down_proj_slices[i]) for i in range(self.config.pretraining_tp)
+            ]
+            down_proj = sum(down_proj)
+        else:
+            down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+        return down_proj
+
+class MixtralBLock2GroupMLP(nn.Module):
+    def __init__(self, config: Mixtral2GroupConfig, add_rescale_bias=False):  # 🔍
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)  # gate, bias=config.mlp_bias)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)  # up, bias=config.mlp_bias)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=add_rescale_bias)  # 🔍 down (may add bias for rescaling), bias=config.mlp_bias)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, x):
+        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+
+        return down_proj
+    
 
 
 MISTRAL_ATTENTION_CLASSES = {
@@ -1838,15 +1890,166 @@ class MixtralSparseMoeBlock(nn.Module):
         return final_hidden_states, router_logits
 
 
-class MixtralDecoderLayer(nn.Module):
-    def __init__(self, config: MixtralConfig, layer_idx: int):
+class Mixtral2Group(nn.Module):
+    """
+    This implementation is
+    """
+
+    def __init__(self, config, num_experts=4):
+        super().__init__()
+        # group0= nn.Module()
+        # self.hidden_dim = config.hidden_size
+        if config.use_fft:
+            self.gate = nn.Linear(config.hidden_size * 2, num_experts, bias=False)
+        else:
+            self.gate = nn.Linear(config.hidden_size, num_experts, bias=False)
+        self.experts = nn.ModuleList(
+                [
+                    MixtralBLock2GroupMLP(
+                        config,
+                        # config.intermediate_size,
+                        add_rescale_bias=config.add_rescale_bias,
+                    )
+                    for _ in range(num_experts)
+                ]  # 🔍
+            )
+
+class Mixtral2GroupMoeBlock(nn.Module):
+    """
+    This implementation is
+    strictly equivalent to standard MoE with full capacity (no
+    dropped tokens). It's faster since it formulates MoE operations
+    in terms of block-sparse operations to accomodate imbalanced
+    assignments of tokens to experts, whereas standard MoE either
+    (1) drop tokens at the cost of reduced performance or (2) set
+    capacity factor to number of experts and thus waste computation
+    and memory on padding.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.hidden_dim = config.hidden_size
+        self.ffn_dim = config.intermediate_size
+        # self.num_experts = config.num_local_experts
+        # self.num_experts_group0 = config.num_local_experts_group0
+        # self.num_experts_group1 = config.num_local_experts_group1
+        self.num_group_experts = [config.num_local_experts_group0, config.num_local_experts_group1]
+        self.top_k = config.num_experts_per_tok
+
+        # specialized for llama-moe-v2
+        self.scale_factor = config.scale_factor
+        self.moe_type = config.moe_type
+
+        if self.moe_type == "modulelist":
+            self.groups = nn.ModuleList(
+                [
+                    Mixtral2Group(
+                        config,
+                        num_experts=num_experts,
+                    )
+                    for num_experts in self.num_group_experts
+                ]
+            )
+        else:
+            raise NotImplementedError(f"Unsupported moe_type: {self.moe_type}")
+
+    def forward(self, hidden_states: torch.Tensor, groups_used=[0, 1], use_fft=False) -> torch.Tensor:
+        """ """
+        batch_size, sequence_length, hidden_dim = hidden_states.shape
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        # router_logits: (batch * sequence_length, n_experts)
+        # router_logits = self.gate(hidden_states)
+
+        all_group_hidden_states, all_group_router_logits = [], []
+        gate_hidden_states = hidden_states
+        if use_fft:
+            # import pdb; pdb.set_trace()
+            # print("hidden_states : {} \n {}".format(hidden_states.shape, hidden_states))
+            # hidden_states_bf32 = hidden_states.to(dtype=torch.float32) ## hidden_states_bf32 + hidden_states
+            # print("hidden_states : {} \n {}".format(hidden_states.shape, hidden_states))
+            # print("hidden_states_bf32 1 : {} \n {}".format(hidden_states_bf32.shape, hidden_states_bf32))
+            # gate_hidden_states = torch.fft.rfft(hidden_states_bf32)
+            hidden_states_fft = torch.fft.fft(hidden_states.to(dtype=torch.float32), dim=-1)
+            # print("gate_hidden_states 2 : {} \n {}".format(gate_hidden_states.shape, gate_hidden_states))
+            hidden_states_fft = hidden_states_fft.real.to(dtype=hidden_states.dtype, device=hidden_states.device)
+            gate_hidden_states = torch.cat([hidden_states, hidden_states_fft], dim=-1)
+
+            # print("gate_hidden_states 3 : {} \n {}".format(gate_hidden_states.shape, gate_hidden_states))
+        for group_idx in groups_used:  ## 不同的group
+            router_logits = self.groups[group_idx].gate(gate_hidden_states)
+            all_group_router_logits.append(router_logits)
+            scores = F.softmax(router_logits, dim=1, dtype=torch.float)
+            routing_weights, selected_experts = torch.topk(scores, self.top_k, dim=-1)
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+            # we cast back to the input dtype
+            routing_weights = routing_weights.to(hidden_states.dtype)
+            
+            group_hidden_states = torch.zeros(
+                (batch_size * sequence_length, hidden_dim),
+                dtype=hidden_states.dtype,
+                device=hidden_states.device,
+            )
+    
+            # One hot encode the selected experts to create an expert mask
+            # this will be used to easily index which expert is going to be sollicitated
+            # expert_mask = torch.nn.functional.one_hot(
+            #     selected_experts, num_classes=self.num_experts
+            # ).permute(2, 1, 0)
+            expert_mask = torch.nn.functional.one_hot(
+                selected_experts, num_classes=self.num_group_experts[group_idx]
+            ).permute(2, 1, 0)
+    
+            # Loop over all available experts in the model and perform the computation on each expert
+            for expert_idx in range(self.num_group_experts[group_idx]):
+                expert_layer = self.groups[group_idx].experts[expert_idx]
+                idx, top_x = torch.where(expert_mask[expert_idx])
+    
+                if (
+                    top_x.shape[0] == 0 and not self.training
+                ):  # skip during training will lead to asynchrony among different GPUs and blocks the training!
+                    continue
+
+                # in torch it is faster to index using lists than torch tensors
+                top_x_list = top_x.tolist()
+                idx_list = idx.tolist()
+
+                # Index the correct hidden states and compute the expert hidden state for
+                # the current expert. We need to make sure to multiply the output hidden
+                # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+                current_state = hidden_states[None, top_x_list].reshape(-1, hidden_dim)
+                current_hidden_states = expert_layer(current_state) * (
+                    routing_weights[top_x_list, idx_list, None] * self.scale_factor
+                    )
+    
+                # However `index_add_` only support torch tensors for indexing so we'll use
+                # the `top_x` tensor here.
+                group_hidden_states.index_add_(
+                    0, top_x, current_hidden_states.to(hidden_states.dtype)
+                )
+
+            all_group_hidden_states.append(group_hidden_states)
+
+        if len(groups_used) > 1: ## mean avg
+            final_hidden_states = (all_group_hidden_states[0] + all_group_hidden_states[1]) / 2.0
+        else:
+            final_hidden_states = all_group_hidden_states[0]
+
+        final_hidden_states = final_hidden_states.reshape(
+            batch_size, sequence_length, hidden_dim
+        )
+
+        return final_hidden_states, all_group_router_logits
+
+class Mixtral2GroupDecoderLayer(nn.Module):
+    def __init__(self, config: Mixtral2GroupConfig, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
 
         # 🔍
-        self.is_moe = (layer_idx >= config.num_moe_contract_layers) and (
-            layer_idx < config.num_hidden_layers - config.num_moe_contract_layers
-        )
+        # self.is_moe = (layer_idx >= config.num_moe_contract_layers) and (
+        #     layer_idx < config.num_hidden_layers - config.num_moe_contract_layers
+        # )
+        self.is_moe = ((layer_idx + 1) % config.num_moe_insert_layers == 0)
         self.use_attn_moe = config.use_attn_moe
 
         if self.use_attn_moe:
@@ -1856,16 +2059,16 @@ class MixtralDecoderLayer(nn.Module):
         self.self_attn = attn_class(config, layer_idx)
 
         if self.is_moe:
-            self.block_sparse_moe = MixtralSparseMoeBlock(config)
+            self.block_mlp_moe = Mixtral2GroupMoeBlock(config)
             self.mlp_residual = (
-                MixtralBLockSparseTop2MLP(config, config.intermediate_size_residual)
+                MixtralBLock2GroupMLP(config, config.intermediate_size_residual)
                 if config.intermediate_size_residual is not None
                 else None
             )
 
         else:
-            self.block_sparse_moe = MixtralBLockSparseTop2MLP(
-                config, config.intermediate_size * config.num_local_experts
+            self.mlp = MixtralBLock2GroupMLP(
+                config,        ## config.intermediate_size * config.num_local_experts
             )
             self.mlp_residual = None
 
@@ -1885,6 +2088,8 @@ class MixtralDecoderLayer(nn.Module):
         output_attentions: Optional[bool] = False,
         output_router_logits: Optional[bool] = False,
         use_cache: Optional[bool] = False,
+         groups_used: Optional[List[int]] = [0],  ## task_0 for group_0
+         use_fft: Optional[bool] = False,
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
@@ -1948,9 +2153,9 @@ class MixtralDecoderLayer(nn.Module):
 
         # 🔍
         if self.is_moe:
-            hidden_states, router_logits = self.block_sparse_moe(hidden_states_input)
+            hidden_states, router_logits = self.block_mlp_moe(hidden_states_input, groups_used=groups_used, use_fft=use_fft)
         else:
-            hidden_states = self.block_sparse_moe(hidden_states_input)
+            hidden_states = self.mlp(hidden_states_input)
             router_logits = None
 
         if self.mlp_residual is not None:
@@ -1973,14 +2178,19 @@ class MixtralDecoderLayer(nn.Module):
 
 
 # Copied from transformers.models.mistral.modeling_mistral.MistralPreTrainedModel with Mistral->Mixtral
-class MixtralPreTrainedModel(PreTrainedModel):
-    config_class = MixtralConfig
+class Mixtral2GroupPreTrainedModel(PreTrainedModel):
+    config_class = Mixtral2GroupConfig
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
-    _no_split_modules = ["MixtralDecoderLayer"]
+    _no_split_modules = ["Mixtral2GroupDecoderLayer"]
     _skip_keys_device_placement = "past_key_values"
     _supports_flash_attn_2 = True
     _supports_cache_class = True
+
+    def __init__(self, config: Mixtral2GroupConfig):
+        super().__init__(config)
+        self.use_fft = config.use_fft
+        self.groups_used = [0]
 
     def _init_weights(self, module):
         std = self.config.initializer_range
@@ -1993,17 +2203,20 @@ class MixtralPreTrainedModel(PreTrainedModel):
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
 
+        
+    def set_groups_used(self, groups_used):
+        self.groups_used = groups_used
 
 # Copied from transformers.models.mistral.modeling_mistral.MistralModel with MISTRAL->MIXTRAL,Mistral->Mixtral
-class MixtralModel(MixtralPreTrainedModel):
+class Mixtral2GroupModel(Mixtral2GroupPreTrainedModel):
     """
     Transformer decoder consisting of *config.num_hidden_layers* layers. Each layer is a [`MixtralDecoderLayer`]
 
     Args:
-        config: MixtralConfig
+        config: Mixtra2GrouplConfig
     """
 
-    def __init__(self, config: MixtralConfig):
+    def __init__(self, config: Mixtral2GroupConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -2013,7 +2226,7 @@ class MixtralModel(MixtralPreTrainedModel):
         )
         self.layers = nn.ModuleList(
             [
-                MixtralDecoderLayer(config, layer_idx)
+                Mixtral2GroupDecoderLayer(config, layer_idx)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
@@ -2029,6 +2242,7 @@ class MixtralModel(MixtralPreTrainedModel):
 
     def set_input_embeddings(self, value):
         self.embed_tokens = value
+    
 
     # Ignore copy
     def forward(
@@ -2042,6 +2256,8 @@ class MixtralModel(MixtralPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         output_router_logits: Optional[bool] = None,
+        #  groups_used: Optional[List[int]] = [0],  ## task_0 for group_0
+        #  use_fft: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, MoeModelOutputWithPast]:
         output_attentions = (
@@ -2175,6 +2391,8 @@ class MixtralModel(MixtralPreTrainedModel):
                     output_attentions,
                     output_router_logits,
                     use_cache,
+                    self.groups_used,  ## task_0 for group_0
+                    self.use_fft,
                 )
 
             else:
@@ -2186,6 +2404,8 @@ class MixtralModel(MixtralPreTrainedModel):
                     output_attentions=output_attentions,
                     output_router_logits=output_router_logits,
                     use_cache=use_cache,
+                    groups_used=self.groups_used,  ## task_0 for group_0
+                    use_fft=self.use_fft,
                 )
 
             hidden_states = layer_outputs[0]
@@ -2236,16 +2456,18 @@ class MixtralModel(MixtralPreTrainedModel):
         )
 
 
-class MixtralForCausalLM(MixtralPreTrainedModel):
+class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
     def __init__(self, config):
         super().__init__(config)
-        self.model = MixtralModel(config)
+        self.model = Mixtral2GroupModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.router_aux_loss_coef = config.router_aux_loss_coef
-        self.num_experts = config.num_local_experts
+        # self.num_experts = config.num_local_experts
+        self.num_group_experts = [config.num_local_experts_group0, config.num_local_experts_group1]
+        # self.top_k = config.num_experts_per_tok
         self.num_experts_per_tok = config.num_experts_per_tok
         # Initialize weights and apply final processing
         self.post_init()
@@ -2269,7 +2491,7 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
         return self.model
 
     def _set_gradient_checkpointing(self, module, value=False):
-        if isinstance(module, MixtralModel):
+        if isinstance(module, Mixtral2GroupModel):
             module.gradient_checkpointing = value
 
     # Ignore copy
@@ -2285,6 +2507,8 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         output_router_logits: Optional[bool] = None,
+        #  groups_used: Optional[List[int]] = [0],  ## task_0 for group_0
+        # use_fft: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> Union[Tuple, MoeCausalLMOutputWithPast]:
         output_attentions = (
@@ -2307,6 +2531,9 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
             return_dict if return_dict is not None else self.config.use_return_dict
         )
 
+        # print("groups_used : {}".format(self.groups_used))
+        # print("use_fft : {}".format(self.use_fft))
+
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs: MoeModelOutputWithPast = self.model(
             input_ids=input_ids,
@@ -2318,6 +2545,8 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             output_router_logits=output_router_logits,
+            # groups_used=self.groups_used,
+            # use_fft=self.use_fft,
             return_dict=return_dict,
         )
 
@@ -2341,23 +2570,32 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
 
         aux_loss = None
         if output_router_logits:
-            valid_router_logits = tuple(
-                logits
+            aux_loss = 0
+            if return_dict:
+                print("outputs.router_logits : {} \n {}".format(len(outputs.router_logits), outputs.router_logits))
+                print("outputs.router_logits[0] : {} \n {}".format(len(outputs.router_logits[0]), outputs.router_logits[0]))
+                print("outputs.router_logits[3] : {} \n {}".format(len(outputs.router_logits[3]), outputs.router_logits[3]))
+                print("outputs.router_logits[0][0] : {} \n {}".format(outputs.router_logits[0][0].shape, outputs.router_logits[0][0]))
+            for group_idx in self.groups_used:
+                valid_router_logits = tuple(
+                logits[group_idx]
                 for logits in (outputs.router_logits if return_dict else outputs[-2])
                 if logits is not None
             )
 
-            aux_loss = load_balancing_loss_func(
+                aux_loss_one = load_balancing_loss_func(
                 valid_router_logits,
-                self.num_experts,
+                self.num_group_experts[group_idx],
                 self.num_experts_per_tok,
                 use_layer_wise_balance=self.config.use_layer_wise_balance,  # ✨
             )
+                aux_loss += aux_loss_one
+                
             if labels is not None:
-                loss += self.router_aux_loss_coef * aux_loss
-                # loss_mlp = self.router_aux_loss_coef * aux_loss
-                # loss = loss + loss_mlp
-                # print("MixtralForCausalLM, mlp aux_loss", loss_mlp)
+                # loss += self.router_aux_loss_coef * aux_loss
+                loss_mlp = self.router_aux_loss_coef * aux_loss
+                loss = loss + loss_mlp
+                print("Mixtral2GroupForCausalLM, mlp aux_loss", loss_mlp)
 
             # 🔍 for Attention MoE
             #################################
@@ -2473,7 +2711,7 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
     @staticmethod
     def _reorder_cache(past_key_values, beam_idx):
         # TODO: support for beam search
-        print("MixtralForCausalLM, _reorder_cache", beam_idx)
+        print("Mixtral2GroupForCausalLM, _reorder_cache", beam_idx)
         raise NotImplementedError
 
         # reordered_past = ()
@@ -2759,7 +2997,13 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
                 )
                 cache_class = QUANT_BACKEND_CLASSES_MAPPING[cache_config.backend]
 
-                if cache_config.backend == "quanto" and not _quanto_available: # not is_quanto_available():
+                try:
+                    from transformers.utils.import_utils import is_quanto_available
+                    quanto_available = is_quanto_available()
+                except:
+                    from transformers.utils.import_utils import _quanto_available
+                    quanto_available = _quanto_available
+                if cache_config.backend == "quanto" and not quanto_available: # not is_quanto_available():
                     raise ImportError(
                         "You need to install `quanto` in order to use KV cache quantization with quanto backend. "
                         "Please install it via  with `pip install quanto`"
@@ -3103,7 +3347,7 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
 
 
 # Copied from transformers.models.llama.modeling_llama.LlamaForSequenceClassification with Llama->Mixtral, LLAMA->MIXTRAL
-class MixtralForSequenceClassification(MixtralPreTrainedModel):
+class Mixtral2GroupForSequenceClassification(Mixtral2GroupPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels

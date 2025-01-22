@@ -1,3 +1,6 @@
+import logging
+import os
+import sys
 import math
 import pathlib
 import random
@@ -9,15 +12,23 @@ import torch
 import transformers
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer, Trainer
+from transformers import PreTrainedTokenizer, Trainer, set_seed, GenerationConfig
 from transformers.trainer_pt_utils import LabelSmoother
 
-import smoe.models.mixtral.modeling_mixtral as ModelingMixtralResidual
-from smoe.models.mixtral import MixtralConfig, MixtralForCausalLM
+import smoe.models.mixtral_2group.modeling_mixtral2group as ModelingMixtral2groupResidual
+from smoe.models.mixtral_2group import Mixtral2GroupConfig, Mixtral2GroupForCausalLM
 from smoe.utils.conversation import Llama3ConversationTemplate
 from smoe.utils.io import get_pathname_from_name_or_path, load_json, load_jsonlines
+import datasets
+# from datasets import DatasetDict, load_dataset, Dataset
+from smoe.utils.datasets.text_instruction_dataset import load_text_instruction_datasets, TextInstructionDataCollator
+from transformers.models.llama.tokenization_llama import LlamaTokenizer
+
+from dataclasses import dataclass
+from pathlib import Path
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,7 +45,7 @@ class ModelArguments:
         default="right", metadata={"help": "The padding side in tokenizer"}
     )
     model_type: str = field(
-        default="auto", metadata={"help": "Model type: `moe` or `mixtral` or `auto`"}
+        default="auto", metadata={"help": "Model type: `moe` or `mixtral` or 'model_type' or `auto`"}
     )
     torch_dtype: str = field(
         default="auto",
@@ -64,12 +75,45 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
+    """
+    Arguments pertaining to what data we are going to input our model for training and eval.
+    """
     eval_data_dir: str = field(
         default=None, metadata={"help": "Path to the evaluation data folder."}
     )
-    dataset_dir_or_path: str = field(
-        default="data/merged",
-        metadata={"help": "Path to dataset directory or a single jsonl file"},
+    # dataset_dir_or_path: str = field(
+    #     default="data/merged",
+    #     metadata={"help": "Path to dataset directory or a single jsonl file"},
+    # )
+    dataset_save_dir: str = field(
+        default="", metadata={"help": "directories (separated by '|') to load and save processed datasets, other data "
+                                      "arguments ignored if set"}
+    )
+    manifest_files: str = field(
+        default="", metadata={"help": "manifest files (separated by '|' between datasets and then ',' between files) "
+                                      "of the training manifest files"}
+    )
+    instructions: str = field(
+        default="", metadata={"help": "instruction_fields (separated by '|'( to read from manifest_files"}
+    )
+    input_fields: str = field(
+        default="", metadata={"help": "input_fields (separated by '|') to read from manifest_files"}
+    )
+    output_fields: str = field(
+        default="", metadata={"help": "output_fields (separated by '|') to read from manifest_files"}
+    )
+    sample_probs: str = field(
+        default="", metadata={"help": "sample_probs (separated by '|') for each dataset (needed for more than one "
+                                      "dataset)"}
+    )
+    max_length: int = field(
+        default=1024, metadata={"help": "samples that have more text tokens than this limit are removed"}
+    )
+    dataset_save_dir: str = field(
+        default="", metadata={"help": "save the resulting dataset for future use"}
+    )
+    interleave_stopping_strategy: str = field(
+        default="first_exhausted", metadata={"help": "choose from 'first_exhausted' (default) and 'all_exhausted'"}
     )
 
 
@@ -78,7 +122,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
-        default=2048,
+        default=1024,
         metadata={
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
@@ -91,10 +135,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default=True,
         metadata={"help": "Whether to save final checkpoint."},
     )
-    max_grad_norm: float = field(
-        default=1.0,
-        metadata={"help": "Max gradient norm."},
-    )
+    # max_grad_norm: float = field(
+    #     default=1.0,
+    #     metadata={"help": "Max gradient norm."},
+    # )
     save_only_model: bool = field(
         default=False,
         metadata={"help": "Whether to save optimizer."},
@@ -113,191 +157,6 @@ def trainer_save_model_safe(trainer):
         trainer.save_model()
 
 
-def preprocess(
-    instances,
-    tokenizer: transformers.PreTrainedTokenizer,
-) -> Dict:
-    # Apply prompt templates
-
-    # import pdb; pdb.set_trace()
-    prompt, source_part = Llama3ConversationTemplate.parse(
-        instances["conversations"], skip_system=True
-    )
-
-    # Tokenize conversations
-    res_conv = tokenizer(
-        prompt,
-        return_tensors="pt",
-        padding=False,
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-    )
-
-    input_ids = res_conv["input_ids"]
-    import copy
-
-    targets = copy.deepcopy(input_ids)
-
-    res_source = tokenizer(
-        source_part,
-        return_tensors="pt",
-        padding=False,
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-    )
-
-    source_length = res_source["input_ids"].shape[1]
-
-    targets[0][
-        :source_length
-    ] = -100  # ignore loss for source part, the target is two dimensional tensor
-
-    attention_masks = torch.tensor(
-        [[0 if input_id_seq == -100 else 1 for input_id_seq in input_ids[0]]]
-    )
-
-    return dict(
-        input_ids=input_ids,
-        labels=targets,
-        attention_mask=attention_masks,
-    )
-
-
-def simple_fault_tolerance_data_collator(features: list) -> dict[str, Any]:
-    batch = {}
-    first = features[0]
-    assert all(key in first for key in ["input_ids", "labels", "attention_mask"])
-    max_len = max([len(feature["input_ids"]) for feature in features])
-    for feature in features:
-        # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
-        feature["input_ids"] = torch.cat(
-            [
-                feature["input_ids"],
-                torch.tensor(
-                    [128009] * (max_len - len(feature["input_ids"])), dtype=torch.long
-                ),
-            ]
-        )
-        feature["labels"] = torch.cat(
-            [
-                feature["labels"],
-                torch.tensor(
-                    [-100] * (max_len - len(feature["labels"])), dtype=torch.long
-                ),
-            ]
-        )
-        feature["attention_mask"] = torch.cat(
-            [
-                feature["attention_mask"],
-                torch.tensor(
-                    [0] * (max_len - len(feature["attention_mask"])), dtype=torch.long
-                ),
-            ]
-        )
-
-    for k, v in first.items():
-        batch[k] = torch.stack([f[k] for f in features])
-
-    return batch
-
-
-def fault_tolerance_data_collator(features: list) -> dict[str, Any]:
-    if not isinstance(features[0], Mapping):
-        try:
-            features = [vars(f) for f in features]
-        except TypeError:
-            print(len(features), type(features[0]), features[0])
-    first = features[0]
-    batch = {}
-
-    # Special handling for labels.
-    # Ensure that tensor is created with the correct type
-    # (it should be automatically the case, but let's make sure of it.)
-    if "label" in first and first["label"] is not None:
-        label = (
-            first["label"].item()
-            if isinstance(first["label"], torch.Tensor)
-            else first["label"]
-        )
-        dtype = torch.long if isinstance(label, int) else torch.float
-        batch["labels"] = torch.tensor([f["label"] for f in features], dtype=dtype)
-    elif "label_ids" in first and first["label_ids"] is not None:
-        if isinstance(first["label_ids"], torch.Tensor):
-            batch["labels"] = torch.stack([f["label_ids"] for f in features])
-        else:
-            dtype = (
-                torch.long if isinstance(first["label_ids"][0], int) else torch.float
-            )
-            batch["labels"] = torch.tensor(
-                [f["label_ids"] for f in features], dtype=dtype
-            )
-
-    # Handling of all other possible keys.
-    # Again, we will use the first element to figure out which key/values are not None for this model.
-
-    try:
-        for k, v in first.items():
-            if (
-                k not in ("label", "label_ids")
-                and v is not None
-                and not isinstance(v, str)
-            ):
-                if isinstance(v, torch.Tensor):
-                    batch[k] = torch.stack([f[k] for f in features])
-                elif isinstance(v, np.ndarray):
-                    batch[k] = torch.tensor(np.stack([f[k] for f in features]))
-                else:
-                    batch[k] = torch.tensor([f[k] for f in features])
-    except ValueError:  # quick fix by simply take the first example
-        for k, v in first.items():
-            if (
-                k not in ("label", "label_ids")
-                and v is not None
-                and not isinstance(v, str)
-            ):
-                if isinstance(v, torch.Tensor):
-                    batch[k] = torch.stack([features[0][k]] * len(features))
-                elif isinstance(v, np.ndarray):
-                    batch[k] = torch.tensor(np.stack([features[0][k]] * len(features)))
-                else:
-                    batch[k] = torch.tensor([features[0][k]] * len(features))
-
-    return batch
-
-
-class CachedJsonlDataset(Dataset):
-    def __init__(
-        self,
-        datapath: str,
-        tokenizer: PreTrainedTokenizer,
-        seed: int = 1227,
-    ) -> None:
-        super().__init__()
-        self.datapath = datapath
-        self.rng = random.Random(seed)
-        self.tokenizer = tokenizer
-        self.data = load_jsonlines(datapath)
-        self.rng.shuffle(self.data)
-
-    def __len__(self) -> int:
-        return len(self.data)
-
-    def __getitem__(self, index):
-        ins = self.data[index]
-        processed = preprocess(ins, self.tokenizer)
-        ins = {}
-        for key in processed:
-            ins[key] = processed[key][0]
-        return ins
-
-    def state_dict(self):
-        return {
-            "datapath": self.datapath,
-            "seed": self.seed,
-            "rng": self.rng.getstate(),
-        }
-
-
 def get_tokenizer(
     model_name_or_path,
     cache_dir: str = None,
@@ -306,20 +165,28 @@ def get_tokenizer(
     use_fast: bool = False,
     trust_remote_code: bool = False,
 ):
+    # import pdb; pdb.set_trace() # PreTrainedTokenizer transformers.AutoTokenizer
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        model_name_or_path,
+        pretrained_model_name_or_path=model_name_or_path,
         cache_dir=cache_dir,
         model_max_length=model_max_length,
         padding_side=padding_side,
         use_fast=use_fast,
         trust_remote_code=trust_remote_code,
     )
+    tt = tokenizer.encode(text="\n\n")
     if tokenizer.pad_token is None:
         if tokenizer.unk_token is not None:
             tokenizer.pad_token = tokenizer.unk_token
         else:
             tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token_id is None:
+        if tokenizer.unk_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.unk_token_id
+        else:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
     logger.info(f"tokenizer ready, pad_token: {tokenizer.pad_token}")
+    print(f"tokenizer ready, pad_token: {tokenizer.pad_token}")
     return tokenizer
 
 
@@ -337,9 +204,9 @@ def get_model(
     if model_type == "auto":
         ConfigClass = transformers.AutoConfig
         ModelClass = transformers.AutoModelForCausalLM
-    elif model_type == "v2_mixtral":
-        ConfigClass = MixtralConfig
-        ModelClass = MixtralForCausalLM
+    elif model_type == "mixtral2group":
+        ConfigClass = Mixtral2GroupConfig
+        ModelClass = Mixtral2GroupForCausalLM
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -351,6 +218,7 @@ def get_model(
     )
     config._attn_implementation = attn_impl
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
+    print(" max_position_embeddings : {}    --".format(orig_ctx_len))
     if orig_ctx_len and model_max_length > orig_ctx_len:
         scaling_factor = float(math.ceil(model_max_length / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
@@ -370,6 +238,7 @@ def get_model(
 
     # model.to('cuda')
     # model = ModelClass(config)
+    logger.info("从 model_args.model_name_or_path 加载 Llama 模型权重。\n {}:{}".format(model_type, model_name_or_path))
     logger.info("model ready")
 
     return model
@@ -409,8 +278,38 @@ def get_model_and_tokenizer(
         additional_config=additional_config,
     )
 
-    return model, tokenizer
+    generation_config = GenerationConfig.from_pretrained(model_name_or_path)
+    logger.info("从 model_args.model_name_or_path 加载 Llama generation_config : \n {}\n".format(generation_config))
 
+    return model, tokenizer, generation_config
+
+class llamaTrainer(Trainer):
+         
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # """
+        # How the loss is computed by Trainer. By default, all models return the loss in the first element.
+
+        # Subclass and override for custom behavior.
+        # """
+        for name, param in model.named_parameters():
+            # logger.info(name, param.shape, param.numel())
+            # print("{} : {} : {}".format(name, param.shape, param.requires_grad))
+            param.requires_grad = True
+
+        if return_outputs:
+            loss, outputs = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        else:
+            loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
+
+        for name, param in model.named_parameters():
+            if "block_mlp_moe" in name and "groups.0" in name:  ##  只 ft 專家
+                param.requires_grad = True
+                # print("block_mlp_moe  groups.0 {} : {} : {}".format(name, param.shape, param.requires_grad))
+            else:
+                param.requires_grad = False
+
+
+        return (loss, outputs) if return_outputs else loss
 
 def train():
     parser = transformers.HfArgumentParser(
@@ -427,7 +326,20 @@ def train():
     logger.info(f"data_args: {data_args}")
     logger.info(f"training_args: {training_args}")
 
-    model, tokenizer = get_model_and_tokenizer(
+    # # 2. Setup logging
+    # logging.basicConfig(
+    #     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    #     datefmt="%m/%d/%Y %H:%M:%S",
+    #     handlers=[logging.StreamHandler(sys.stdout)],
+    # )
+    # log_level = training_args.get_process_log_level()
+    # logger.setLevel(log_level)
+    # datasets.utils.logging.set_verbosity(log_level)
+    # transformers.utils.logging.set_verbosity(log_level)
+    # transformers.utils.logging.enable_default_handler()
+    # transformers.utils.logging.enable_explicit_format()
+
+    model, tokenizer, generation_config = get_model_and_tokenizer(
         model_args.model_type,
         model_args.model_name_or_path,
         tokenizer_path=model_args.tokenizer_name_or_path,
@@ -439,45 +351,52 @@ def train():
         model_max_length=training_args.model_max_length,
         cache_dir=training_args.cache_dir,
     )
-    if training_args.freeze_gate:
-        for name, param in model.named_parameters():
-            if ".gate." in name:
-                param.requires_grad = False
     tot_params = 0
     for name, param in model.named_parameters():
         # logger.info(name, param.shape, param.numel())
+        # print("{} : {} : {}".format(name, param.shape, param.requires_grad))
+        if "block_mlp_moe" in name and "groups.0" in name:  ##  只 ft 專家
+            param.requires_grad = True
+            # print("block_mlp_moe   {} : {} : {}".format(name, param.shape, param.requires_grad))
+        else:
+            param.requires_grad = False
         tot_params += param.numel()
+    logger.info(f"  groups.0     will trained!   --")
     logger.info(f"Total model params: {tot_params}")
 
+    # if training_args.freeze_gate:
+    #     for name, param in model.named_parameters():
+    #         if "block_mlp_moe" in name and ".gate." in name:
+    #             param.requires_grad = False
+
+
     train_dataset = None
-    datapath = pathlib.Path(data_args.dataset_dir_or_path)
-    if not datapath.exists():
-        raise ValueError(f"Dataset path {datapath} not found")
-    elif datapath.is_file():
-        logger.info(f"CachedJsonlDataset: {datapath}")
-        train_dataset = CachedJsonlDataset(
-            data_args.dataset_dir_or_path,
-            tokenizer,
-            seed=training_args.seed,
-        )
-    else:
-        raise ValueError(f"Unknown dataset path type: {datapath}")
+    ### 5. Load dataset
+    # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
+    train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer)
+    print("pad_id, tokenizer         : {}".format(tokenizer.pad_token_id))
+    print("pad_id, generation_config : {}".format(generation_config.pad_token_id))
+    data_collator = TextInstructionDataCollator(pad_id=tokenizer.pad_token_id)
     logger.info("train dataset ready")
 
+    # Set seed before initializing model.
+    set_seed(training_args.seed)
+    # 7. Initialize Trainer
     # print("starting memory tracking...")
     # torch.cuda.memory._record_memory_history(enabled=True, trace_alloc_record_context=True, _enable_expensive_cpp=True)
     # print("starting memory tracking...ok")
-    trainer = Trainer(
+    # print("callbacks : {}".format())
+    trainer = llamaTrainer(
         model=model,
-        tokenizer=tokenizer,
         args=training_args,
+        data_collator=data_collator,
         train_dataset=train_dataset,
-        data_collator=simple_fault_tolerance_data_collator,
-        # data_collator=fault_tolerance_data_collator,
-        # num_processes=1 # for flash_attention_2
+        # tokenizer=tokenizer,
     )
     logger.info("trainer ready")
 
+    # 8. Training
+    model.set_groups_used([0]) ## only first group experts will used in training
     if training_args.do_train:
         if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
             logger.info("resume training from ckpt")
@@ -489,7 +408,7 @@ def train():
     # Save model
     if training_args.save_final_ckpt:
         logger.info("training finished, dumping model")
-        model.config.use_cache = True
+        model.config.use_cache = False ## True
         trainer.save_state()  # for debug, not save
         if trainer.is_deepspeed_enabled:
             trainer.save_model()
