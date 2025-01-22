@@ -627,36 +627,54 @@ class MoECache(Cache):
         Support for backwards-compatible `past_key_value` indexing, e.g. `past_key_value[0][0][0].shape[2]` to get the
         sequence length.
         """
-        if layer_idx < len(self):
-            if expert_idx < self.num_group_experts[group_idx]:  # 🔍
-                return (self.key_cache[expert_idx][group_idx][layer_idx], self.value_cache[expert_idx][group_idx][layer_idx])
-            else:  # 🔍
-                raise KeyError(f"Cache only has {self.num_group_experts[group_idx]} experts, attempted to access expert with index {expert_idx}")
+        all_index_list = self._index_layers()
+        if layer_idx in all_index_list: ## < len(self):
+            if group_idx < len(self.num_group_experts):
+                if expert_idx < self.num_group_experts[group_idx]:  # 🔍
+                   return (self.key_cache[group_idx][expert_idx][layer_idx], self.value_cache[group_idx][expert_idx][layer_idx])
+                else:  # 🔍
+                    raise KeyError(f"Cache only has {self.num_group_experts[group_idx]} experts, attempted to access expert with index {expert_idx}")
+            else:
+                raise KeyError(f"Cache only has {self.num_groups} groups, attempted to access expert with index {group_idx}")
         else:
-            raise KeyError(f"Cache only has {len(self)} layers, attempted to access layer with index {layer_idx}")
+            raise KeyError(f"Cache only has {all_index_list} layers, attempted to access layer with index {layer_idx}")
 
     def __iter__(self):
         """
         Support for backwards-compatible `past_key_value` iteration, e.g. `for x in past_key_value:` to iterate over
         keys and values
         """
-        for layer_idx in range(len(self)):
+        all_index_list = self._index_layers()
+        if layer_idx in all_index_list: ## < len(self):
             for group_idx in range(self.num_groups):
                 for expert_idx in range(self.num_group_experts[group_idx]):  # 🔍
-                    if layer_idx in self.key_cache[expert_idx][group_idx]:
-                        yield (self.key_cache[expert_idx][group_idx][layer_idx], self.value_cache[expert_idx][group_idx][layer_idx])
+                    if layer_idx in self.key_cache[group_idx][expert_idx]:
+                        yield (self.key_cache[group_idx][expert_idx][layer_idx], self.value_cache[group_idx][expert_idx][layer_idx])
 
     def __len__(self):
         """
         Support for backwards-compatible `past_key_value` length, e.g. `len(past_key_value)`. This value corresponds
         to the number of layers in the model.
         """
-        all_index_list = [key for i in range(self.num_experts) for key in self.key_cache[i].keys()]
+        all_index_list = [key for i in range(self.num_group_experts[0]) for key in self.key_cache[i].keys()]
+
+        # if len(all_index_list) == 0:
+        #     return 0
+        # else:
+        #     return max(all_index_list) + 1  # 🔍 the maximum layer index among all experts
+        return len(all_index_list)
+    
+    def _index_layers(self):
+        """
+        Support for backwards-compatible `past_key_value` length, e.g. `len(past_key_value)`. This value corresponds
+        to the number of layers in the model.
+        """
+        all_index_list = [key for i in range(self.num_group_experts[0]) for key in self.key_cache[i].keys()]
 
         if len(all_index_list) == 0:
-            return 0
+            return []
         else:
-            return max(all_index_list) + 1  # 🔍 the maximum layer index among all experts
+            return all_index_list  # 🔍 the maximum layer index among all experts
 
     def update(
             self,
@@ -2655,7 +2673,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 # loss += self.router_aux_loss_coef * aux_loss
                 loss_mlp = self.router_aux_loss_coef * aux_loss
                 loss = loss + loss_mlp
-                print("Mixtral2GroupForCausalLM, mlp aux_loss", loss_mlp)
+                print("Mixtral2GroupForCausalLM, mlp aux_loss: ", loss_mlp)
 
             # 🔍 for Attention MoE
             #################################
@@ -2947,7 +2965,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
         # 4. Define other model kwargs
         # decoder-only models with inputs_embeds forwarding must use caching (otherwise we can't detect whether we are
         # generating the first new token or not, and we only want to use the embeddings for the first new token)
-        if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds":
+        if not self.config.is_encoder_decoder and model_input_name == "inputs_embeds": ## 输入embeds
             model_kwargs["use_cache"] = True
         else:
             model_kwargs["use_cache"] = generation_config.use_cache
@@ -3140,7 +3158,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
             negative_prompt_attention_mask=negative_prompt_attention_mask,
         )
 
-        # 9. prepare stopping criteria
+        # 9. prepare stopping criteria 
         prepared_stopping_criteria = self._get_stopping_criteria(
             generation_config=generation_config,
             stopping_criteria=stopping_criteria,
@@ -3155,7 +3173,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                     "num_return_sequences has to be 1 when doing assisted generate, "
                     f"but is {generation_config.num_return_sequences}."
                 )
-            if batch_size > 1:
+            if batch_size > 1:  ## 为什么不能 ？
                 raise ValueError(
                     "assisted generate is only supported for batch_size = 1"
                 )
@@ -3415,7 +3433,7 @@ class Mixtral2GroupForSequenceClassification(Mixtral2GroupPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
-        self.model = MixtralModel(config)
+        self.model = Mixtral2GroupModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         # Initialize weights and apply final processing
