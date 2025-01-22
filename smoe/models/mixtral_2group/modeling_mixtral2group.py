@@ -4,6 +4,7 @@ import inspect
 import math
 import warnings
 from dataclasses import dataclass
+import numpy as np
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import stk
@@ -2636,13 +2637,13 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
             # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
-            print("MixtralForCausalLM, cross entropy loss", loss)
+            # print("MixtralForCausalLM, cross entropy loss", loss)
 
         aux_loss = None
         if output_router_logits:
             # import pdb; pdb.set_trace()
             aux_loss = 0
-            if return_dict:
+            if return_dict and np.random.random() < 0.02:
                 print(
                     "outputs.router_logits : {} \n {}".format(
                         len(outputs.router_logits), outputs.router_logits
@@ -2651,11 +2652,6 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 # outputs.router_logits : 16 
                 #   (None, None, None, [tensor([[ 2.3438e+00, -5.2500e+00
 
-                # print(
-                #     "outputs.router_logits[0] : {} \n {}".format(
-                #         len(outputs.router_logits[0]), outputs.router_logits[0]
-                #     )
-                # )
                 print(
                     "outputs.router_logits[3] : {} \n {}".format(
                         len(outputs.router_logits[3]), outputs.router_logits[3]
@@ -2690,7 +2686,8 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 # loss += self.router_aux_loss_coef * aux_loss
                 loss_mlp = self.router_aux_loss_coef * aux_loss
                 loss = loss + loss_mlp
-                print("Mixtral2GroupForCausalLM, mlp aux_loss: ", loss_mlp)
+                if np.random.random() < 0.02:
+                    print("Mixtral2GroupForCausalLM, mlp aux_loss: ", loss_mlp)
 
             # 🔍 for Attention MoE
             #################################
