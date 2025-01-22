@@ -1,31 +1,33 @@
 import logging
-import os
-import sys
 import math
+import os
 import pathlib
 import random
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
+import datasets
 import numpy as np
 import torch
 import transformers
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer, Trainer, set_seed, GenerationConfig
+from transformers import GenerationConfig, PreTrainedTokenizer, Trainer, set_seed
+from transformers.models.llama.tokenization_llama import LlamaTokenizer
 from transformers.trainer_pt_utils import LabelSmoother
 
 import smoe.models.mixtral_2group.modeling_mixtral2group as ModelingMixtral2groupResidual
 from smoe.models.mixtral_2group import Mixtral2GroupConfig, Mixtral2GroupForCausalLM
 from smoe.utils.conversation import Llama3ConversationTemplate
-from smoe.utils.io import get_pathname_from_name_or_path, load_json, load_jsonlines
-import datasets
-# from datasets import DatasetDict, load_dataset, Dataset
-from smoe.utils.datasets.text_instruction_dataset import load_text_instruction_datasets, TextInstructionDataCollator
-from transformers.models.llama.tokenization_llama import LlamaTokenizer
 
-from dataclasses import dataclass
-from pathlib import Path
+# from datasets import DatasetDict, load_dataset, Dataset
+from smoe.utils.datasets.text_instruction_dataset import (
+    TextInstructionDataCollator,
+    load_text_instruction_datasets,
+)
+from smoe.utils.io import get_pathname_from_name_or_path, load_json, load_jsonlines
 
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 logger = logging.getLogger(__name__)
@@ -45,7 +47,8 @@ class ModelArguments:
         default="right", metadata={"help": "The padding side in tokenizer"}
     )
     model_type: str = field(
-        default="auto", metadata={"help": "Model type: `moe` or `mixtral` or 'model_type' or `auto`"}
+        default="auto",
+        metadata={"help": "Model type: `moe` or `mixtral` or 'model_type' or `auto`"},
     )
     torch_dtype: str = field(
         default="auto",
@@ -78,6 +81,7 @@ class DataArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
+
     eval_data_dir: str = field(
         default=None, metadata={"help": "Path to the evaluation data folder."}
     )
@@ -86,34 +90,58 @@ class DataArguments:
     #     metadata={"help": "Path to dataset directory or a single jsonl file"},
     # )
     dataset_save_dir: str = field(
-        default="", metadata={"help": "directories (separated by '|') to load and save processed datasets, other data "
-                                      "arguments ignored if set"}
+        default="",
+        metadata={
+            "help": "directories (separated by '|') to load and save processed datasets, other data "
+            "arguments ignored if set"
+        },
     )
     manifest_files: str = field(
-        default="", metadata={"help": "manifest files (separated by '|' between datasets and then ',' between files) "
-                                      "of the training manifest files"}
+        default="",
+        metadata={
+            "help": "manifest files (separated by '|' between datasets and then ',' between files) "
+            "of the training manifest files"
+        },
     )
     instructions: str = field(
-        default="", metadata={"help": "instruction_fields (separated by '|'( to read from manifest_files"}
+        default="",
+        metadata={
+            "help": "instruction_fields (separated by '|'( to read from manifest_files"
+        },
     )
     input_fields: str = field(
-        default="", metadata={"help": "input_fields (separated by '|') to read from manifest_files"}
+        default="",
+        metadata={
+            "help": "input_fields (separated by '|') to read from manifest_files"
+        },
     )
     output_fields: str = field(
-        default="", metadata={"help": "output_fields (separated by '|') to read from manifest_files"}
+        default="",
+        metadata={
+            "help": "output_fields (separated by '|') to read from manifest_files"
+        },
     )
     sample_probs: str = field(
-        default="", metadata={"help": "sample_probs (separated by '|') for each dataset (needed for more than one "
-                                      "dataset)"}
+        default="",
+        metadata={
+            "help": "sample_probs (separated by '|') for each dataset (needed for more than one "
+            "dataset)"
+        },
     )
     max_length: int = field(
-        default=1024, metadata={"help": "samples that have more text tokens than this limit are removed"}
+        default=1024,
+        metadata={
+            "help": "samples that have more text tokens than this limit are removed"
+        },
     )
     dataset_save_dir: str = field(
         default="", metadata={"help": "save the resulting dataset for future use"}
     )
     interleave_stopping_strategy: str = field(
-        default="first_exhausted", metadata={"help": "choose from 'first_exhausted' (default) and 'all_exhausted'"}
+        default="first_exhausted",
+        metadata={
+            "help": "choose from 'first_exhausted' (default) and 'all_exhausted'"
+        },
     )
 
 
@@ -238,7 +266,11 @@ def get_model(
 
     # model.to('cuda')
     # model = ModelClass(config)
-    logger.info("从 model_args.model_name_or_path 加载 Llama 模型权重。\n {}:{}".format(model_type, model_name_or_path))
+    logger.info(
+        "从 model_args.model_name_or_path 加载 Llama 模型权重。\n {}:{}".format(
+            model_type, model_name_or_path
+        )
+    )
     logger.info("model ready")
 
     return model
@@ -279,12 +311,16 @@ def get_model_and_tokenizer(
     )
 
     generation_config = GenerationConfig.from_pretrained(model_name_or_path)
-    logger.info("从 model_args.model_name_or_path 加载 Llama generation_config : \n {}\n".format(generation_config))
+    logger.info(
+        "从 model_args.model_name_or_path 加载 Llama generation_config : \n {}\n".format(
+            generation_config
+        )
+    )
 
     return model, tokenizer, generation_config
 
+
 class llamaTrainer(Trainer):
-         
     def compute_loss(self, model, inputs, return_outputs=False):
         # """
         # How the loss is computed by Trainer. By default, all models return the loss in the first element.
@@ -297,7 +333,9 @@ class llamaTrainer(Trainer):
             param.requires_grad = True
 
         if return_outputs:
-            loss, outputs = super().compute_loss(model, inputs, return_outputs=return_outputs)
+            loss, outputs = super().compute_loss(
+                model, inputs, return_outputs=return_outputs
+            )
         else:
             loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
 
@@ -308,8 +346,8 @@ class llamaTrainer(Trainer):
             else:
                 param.requires_grad = False
 
-
         return (loss, outputs) if return_outputs else loss
+
 
 def train():
     parser = transformers.HfArgumentParser(
@@ -369,7 +407,6 @@ def train():
     #         if "block_mlp_moe" in name and ".gate." in name:
     #             param.requires_grad = False
 
-
     train_dataset = None
     ### 5. Load dataset
     # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
@@ -396,7 +433,7 @@ def train():
     logger.info("trainer ready")
 
     # 8. Training
-    model.set_groups_used([0]) ## only first group experts will used in training
+    model.set_groups_used([0])  ## only first group experts will used in training
     if training_args.do_train:
         if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
             logger.info("resume training from ckpt")
@@ -408,7 +445,7 @@ def train():
     # Save model
     if training_args.save_final_ckpt:
         logger.info("training finished, dumping model")
-        model.config.use_cache = False ## True
+        model.config.use_cache = False  ## True
         trainer.save_state()  # for debug, not save
         if trainer.is_deepspeed_enabled:
             trainer.save_model()

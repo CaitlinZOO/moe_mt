@@ -35,10 +35,9 @@ from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.modeling_outputs import ModelOutput, SequenceClassifierOutputWithPast
 from transformers.modeling_utils import PreTrainedModel
 from transformers.utils import is_torch_available, logging
-from transformers.utils.import_utils import (
-    is_hqq_available,
-    # is_quanto_available,
+from transformers.utils.import_utils import (  # is_quanto_available,
     _quanto_available,
+    is_hqq_available,
     is_torch_fx_available,
     is_torchdynamo_compiling,
 )
@@ -2759,7 +2758,9 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
                 )
                 cache_class = QUANT_BACKEND_CLASSES_MAPPING[cache_config.backend]
 
-                if cache_config.backend == "quanto" and not _quanto_available: # not is_quanto_available():
+                if (
+                    cache_config.backend == "quanto" and not _quanto_available
+                ):  # not is_quanto_available():
                     raise ImportError(
                         "You need to install `quanto` in order to use KV cache quantization with quanto backend. "
                         "Please install it via  with `pip install quanto`"
