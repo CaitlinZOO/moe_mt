@@ -90,7 +90,7 @@ print(tokenizer.decode(pred.cpu()[0], skip_special_tokens=True))
 
 1. Prepare conda environment: `conda create -n smoe python=3.11` (If your environment name is not `smoe`, you may need to change environment in launching scripts)
 2. Add correct environment variables in `~/.bashrc` (`gcc` is set to newer version for installing `flash-attn`). e.g.:
-  (如果服务器上有cuda驱动，不用这一步安装和写PATH)
+     (如果服务器上有cuda驱动，不用这一步安装和写PATH)
     ```bash
     export PATH=/mnt/petrelfs/share/cuda-11.8/bin:$PATH
     export LD_LIBRARY_PATH=/mnt/petrelfs/share/cuda-11.8/lib64:$LD_LIBRARY_PATH
@@ -159,7 +159,6 @@ For more information, please refer to [Expert Construction docs](docs/expert_con
    --input_fields="src_text|src_text"     数据中指定的字段，作为gpt的输入
    --output_fields="src_text|tgt_text"     数据中指定的字段，作为gpt的生成
    --instructions="|"     指令，一个数据文件对应一个，用 | 隔开， lm任务是空，没有指令，翻译任务比如是  "Please translate the English text into Spanish: | Please     translate the English text into French: "
-    目前的use_cache设置的False，还在改，generate的时候可能会比较慢
      
    ```
 
