@@ -30,7 +30,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 # export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:$LD_LIBRARY_PATH
 
 # src_text
-# tgt_text  
+# tgt_text
 # src_lang
 # tgt_lang
 
@@ -71,8 +71,8 @@ echo "Request ${NUM_GPU} GPUs(${GPUS}) ."
 
 export CUDA_VISIBLE_DEVICES=${GPUS}
 port=$(( 104 + 26100 ))
-# torchrun --nproc_per_node ${NUM_GPU} --master_port ${port}  
-#  CUDA_VISIBLE_DEVICES=0,1 python 
+# torchrun --nproc_per_node ${NUM_GPU} --master_port ${port}
+#  CUDA_VISIBLE_DEVICES=0,1 python
     # --deepspeed config/dp_config_zero1.json \ --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR
 # /home/zhanglinlin/anaconda3/envs/smoe/bin/python
 

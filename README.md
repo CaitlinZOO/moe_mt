@@ -134,15 +134,22 @@ print(tokenizer.decode(pred.cpu()[0], skip_special_tokens=True))
 
 
 
+
+
 <h2 id="expert-construction">🚧 Expert Construction for MLP MoE</h2>
 
 - Vanilla LLaMA-MoE-v2: `sbatch scripts/expert_construction/convert/convert_mixtral_v2.sh`
 - Residual LLaMA-MoE-v2: `sbatch scripts/expert_construction/convert/convert_mixtral_residual_v2.sh`
 
+- LLaMA-MoE 2group 4experts: `bash scripts/expert_construction/convert/convert_mixtral_2group_base.sh`
+
 For more information, please refer to [Expert Construction docs](docs/expert_construction/README.md).
 
 
 <h2 id="sft">💬 Supervised Fine-Tuning (SFT)</h2>
+
+- sft stage_1  lm : `bash scripts/sft/sft_lm_2group_4e_top1_base.sh`
+- sft stage_2  st : `bash scripts/sft/sft_st_2group_4e_top1_base.sh`
 
 - **NOTICE:** Please create `logs/` folder manually: `mkdir -p logs`
 

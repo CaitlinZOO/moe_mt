@@ -20,7 +20,10 @@ from transformers.utils import (
 )
 
 _import_structure = {
-    "configuration_mixtral2group": ["MIXTRAL2GROUP_PRETRAINED_CONFIG_ARCHIVE_MAP", "Mixtral2GroupConfig"],
+    "configuration_mixtral2group": [
+        "MIXTRAL2GROUP_PRETRAINED_CONFIG_ARCHIVE_MAP",
+        "Mixtral2GroupConfig",
+    ],
 }
 
 

@@ -28,9 +28,9 @@ def is_safetensors_file(filepath):
 
 FFN_TYPE_MAP = {
     "modulelist": {
-        "gate": "w1", ## h->mid 
+        "gate": "w1",  ## h->mid
         "down": "w2",
-        "up": "w3", ## h->mid 
+        "up": "w3",  ## h->mid
     },
 }
 
@@ -52,7 +52,7 @@ def convert_safetensors(
     dump_folder.mkdir(parents=True, exist_ok=True)
     ffn_type_map = FFN_TYPE_MAP[moe_type]
 
-    raw_total_size = -1   ## 
+    raw_total_size = -1   ##
     tensor_filepaths = []
     for filepath in model_folder.glob("*"):
         print("filepath: \n {}".format(filepath))
@@ -69,7 +69,7 @@ def convert_safetensors(
                 config.scale_factor = scale_factor
                 config.moe_type = moe_type
                 config.num_moe_contract_layers=num_moe_contract_layers
-                ## 
+                ##
                 config.intermediate_size = config.intermediate_size // num_experts
                 print("intermediate_size: {}".format(config.intermediate_size))
 
@@ -95,7 +95,7 @@ def convert_safetensors(
     router_records = set()
     weight_map = {}
     total_size = 0
-    total_gate_size = 0  ## 
+    total_gate_size = 0  ##
     visited_layers = set()
     for fi, filepath in enumerate(tensor_filepaths):
         with safe_open(filepath, framework="pt", device="cpu") as f:
@@ -119,7 +119,7 @@ def convert_safetensors(
                         if ffn_type == "down":
                             hsz, mid = tensor.shape
                             mid_idx = 1
-                        else:  ## h->mid 
+                        else:  ## h->mid
                             mid, hsz = tensor.shape
                             mid_idx = 0
 

@@ -57,8 +57,8 @@ echo "Request ${NUM_GPU} GPUs(${GPUS}) ."
 
 export CUDA_VISIBLE_DEVICES=${GPUS}
 port=$(( 104 + 26300 ))
-# torchrun --nproc_per_node ${NUM_GPU} --master_port ${port}  
-#  CUDA_VISIBLE_DEVICES=0,1 python 
+# torchrun --nproc_per_node ${NUM_GPU} --master_port ${port}
+#  CUDA_VISIBLE_DEVICES=0,1 python
     # --deepspeed config/dp_config_zero1.json \ --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR
 # /home/zhanglinlin/anaconda3/envs/smoe/bin/python
 

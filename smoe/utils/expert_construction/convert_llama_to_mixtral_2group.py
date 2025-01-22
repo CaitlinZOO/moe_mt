@@ -43,7 +43,7 @@ def convert_safetensors(
     num_experts_group1: int = 4,
     top_k: int = 1,
     scale_factor: float = 1.0,
-    num_moe_insert_layers: int = 4,   ## per 4 layers to insert MoE MLP
+    num_moe_insert_layers: int = 4,  ## per 4 layers to insert MoE MLP
     moe_type: str = "modulelist",
     use_fft: bool = True,
     neuron_indices: dict = None,
@@ -60,7 +60,7 @@ def convert_safetensors(
     print("top_k: {}".format(top_k))
     print("num_moe_insert_layers: {}".format(num_moe_insert_layers))
 
-    raw_total_size = -1   ## 
+    raw_total_size = -1   ##
     tensor_filepaths = []
     for filepath in model_folder.glob("*"):
         # print("filepath: \n {}".format(filepath))
@@ -80,7 +80,7 @@ def convert_safetensors(
                 config.moe_type = moe_type
                 config.num_moe_insert_layers = num_moe_insert_layers
                 config.use_fft = use_fft
-                ## 
+                ##
                 # config.intermediate_size = config.intermediate_size // num_experts
                 print("intermediate_size: {}".format(config.intermediate_size))
 
@@ -146,12 +146,12 @@ def convert_safetensors(
                             else:
                                 gate0_weight = torch.zeros(num_experts_group0, hsz)
                                 gate1_weight = torch.zeros(num_experts_group1, hsz)
-                            
+
                             init.kaiming_uniform_(gate0_weight, a=math.sqrt(5))
                             tensors[
                                 f"model.layers.{layer_idx}.block_mlp_moe.groups.0.gate.weight"
                             ] = gate0_weight
-                            
+
                             init.kaiming_uniform_(gate1_weight, a=math.sqrt(5))
                             tensors[
                                 f"model.layers.{layer_idx}.block_mlp_moe.groups.1.gate.weight"
@@ -169,7 +169,7 @@ def convert_safetensors(
                             tensors[
                                 f"model.layers.{layer_idx}.block_mlp_moe.groups.1.experts.{expert_idx}.{ffn_type}_proj.weight"
                                 ] = tensor.clone()
-                            
+
                     else: ## 不是moe
                         tensors[key] = tensor
 
@@ -225,23 +225,20 @@ if __name__ == "__main__":
     neuron_indices_file = ""
     gate_weights_file = ""
 
-
     print(f"converting {moe_type}")
     convert_safetensors(
-            src_model_dir,
-            f"{tgt_model_dir_prefix}",
-            num_experts_group0=num_experts_group0,
-            num_experts_group1=num_experts_group1,
-            top_k=top_k,
-            num_moe_insert_layers=num_moe_insert_layers,
-            moe_type=moe_type,
-            neuron_indices=None
-            if neuron_indices_file == ""
-            else torch.load(neuron_indices_file),
-            gate_weights=None
-            if gate_weights_file == ""
-            else torch.load(gate_weights_file),
-        )
+        src_model_dir,
+        f"{tgt_model_dir_prefix}",
+        num_experts_group0=num_experts_group0,
+        num_experts_group1=num_experts_group1,
+        top_k=top_k,
+        num_moe_insert_layers=num_moe_insert_layers,
+        moe_type=moe_type,
+        neuron_indices=None
+        if neuron_indices_file == ""
+        else torch.load(neuron_indices_file),
+        gate_weights=None if gate_weights_file == "" else torch.load(gate_weights_file),
+    )
 
     print(f"testing {moe_type}")
     m = Mixtral2GroupForCausalLM.from_pretrained(f"{tgt_model_dir_prefix}").bfloat16()

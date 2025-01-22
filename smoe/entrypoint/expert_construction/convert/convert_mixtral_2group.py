@@ -2,7 +2,9 @@ import argparse
 
 import torch
 
-from smoe.utils.expert_construction.convert_llama_to_mixtral_2group import convert_safetensors
+from smoe.utils.expert_construction.convert_llama_to_mixtral_2group import (
+    convert_safetensors,
+)
 
 # fmt: off
 if __name__ == "__main__":

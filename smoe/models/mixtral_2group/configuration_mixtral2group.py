@@ -162,8 +162,8 @@ class Mixtral2GroupConfig(PretrainedConfig):
         sliding_window=4096,
         attention_dropout=0.0,
         num_experts_per_tok=1,  ## topk
-        num_local_experts_group0=4,   ## ex
-        num_local_experts_group1=4,   ## ex
+        num_local_experts_group0=4,  ## ex
+        num_local_experts_group1=4,  ## ex
         scale_factor: float = 1.0,  # 🔍  scale
         use_fft=True,
         output_router_logits=False,
@@ -172,7 +172,7 @@ class Mixtral2GroupConfig(PretrainedConfig):
         num_moe_insert_layers: int = 4,  # 🔍 the number of layers that are not converted into MoE at each side of the model
         use_attn_moe: bool = False,  # 🔍
         top_k_attn: int = None,  # 🔍
-        attn_experts: int = None, 
+        attn_experts: int = None,
         scale_factor_attn: float = None,  # 🔍
         use_layer_wise_balance: bool = False,  # ✨ whether to fix the balance loss bug for Mixtral
         add_rescale_bias: bool = False,  # 🔍 whether to add bias to the AttentionMoE `o_proj` & MoE `down_proj` for distribution alignment
@@ -221,7 +221,9 @@ class Mixtral2GroupConfig(PretrainedConfig):
 
         # 🔍 for distribution alignment
         self.add_rescale_bias = add_rescale_bias
-        print("add_rescale_bias 是：{}   -------------------------".format(add_rescale_bias))
+        print(
+            "add_rescale_bias 是：{}   -------------------------".format(add_rescale_bias)
+        )
 
         # Attention implementation to use, if relevant.
         self._attn_implementation_internal = kwargs.pop("attn_implementation", None)
@@ -247,8 +249,6 @@ class Mixtral2GroupConfig(PretrainedConfig):
         else:
             return "flash_attention_2"
             # return "eager"
-            
-
 
     @_attn_implementation.setter
     def _attn_implementation(self, value):
