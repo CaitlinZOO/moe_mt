@@ -247,21 +247,24 @@ def load_text_instruction_dataset(
     return dataset
 
 
-def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1):
+def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1, do_eval=False):
     dataset = None
-    if os.path.exists(data_args.dataset_save_dir) and os.listdir(
-        data_args.dataset_save_dir
-    ):
+    dataset_save_dir = data_args.dataset_save_dir if os.path.exists(data_args.dataset_save_dir) else None
+    if dataset_save_dir is not None and do_eval:
+        dataset_save_dir = data_args.dataset_save_dir + "_eval"
+        print("dataset_save_dir :{} ".format(dataset_save_dir))
+    if os.path.exists(dataset_save_dir) and os.listdir(dataset_save_dir):
         try:
-            logger.warning(
-                f"loading processed dataset from {data_args.dataset_save_dir}"
-            )
-            dataset = datasets.load_from_disk(data_args.dataset_save_dir)
+            logger.warning(f"loading processed dataset from {dataset_save_dir}")
+            dataset = datasets.load_from_disk(dataset_save_dir)
             return dataset
         except:
-            logger.warning(f" load from {data_args.dataset_save_dir},   fail !! ")
+            logger.warning(f" load from {dataset_save_dir},   fail !! ")
 
     manifest_keys = ["manifest_files", "instructions", "input_fields", "output_fields"]
+    if do_eval:
+        manifest_keys = ["eval_manifest_files", "eval_instructions", "eval_input_fields", "eval_output_fields"]
+    
     if dataset is not None:
         num_datasets = len(dataset)
     else:
@@ -287,6 +290,7 @@ def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1):
             )
             for i in range(num_datasets)
         ]
+    
     if len(all_datasets) == 1:
         dataset = all_datasets[0]
     else:
@@ -302,11 +306,13 @@ def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1):
                 probabilities=sample_probs,
             )
 
-    print("dataset_save_dir : {}".format(data_args.dataset_save_dir))
-    if data_args.dataset_save_dir and (
+    print("dataset_save_dir : {}".format(dataset_save_dir))
+    if dataset_save_dir and (
         not dist.is_initialized() or dist.get_rank() == 0
     ):
-        dataset.save_to_disk(data_args.dataset_save_dir)
+        # if not os.path.exists(dataset_save_dir):
+        #     os.mkdir(dataset_save_dir)
+        dataset.save_to_disk(dataset_save_dir)
 
     return dataset
 

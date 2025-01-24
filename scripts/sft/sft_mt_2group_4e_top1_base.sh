@@ -37,7 +37,8 @@ export PATH=/usr/local/cuda/bin:$PATH
     task_name=$SLURM_JOB_NAME
     model_type="mixtral2group"
 
-    dataset_dir_or_path="/home/zhanglinlin/zll/en-es/dev_jst.tsv|/home/zhanglinlin/zll/en-fr/dev_jst.tsv"
+    train_dataset_dir_or_path="/home/zhanglinlin/zll/en-es/dev_jst.tsv|/home/zhanglinlin/zll/en-fr/dev_jst.tsv"
+    eval_dataset_dir_or_path="/home/zhanglinlin/zll/en-es/tst-COMMON_jst-t.tsv|/home/zhanglinlin/zll/en-es/tst-COMMON_jst-t.tsv"
     model_name_or_path="/home/zhanglinlin/outputs/moe_mt/converted_models/Llama3.2-1B-2group-4-4expert-MLP-MoE-Top1-Scale4.0-Insert4_use-fft"
     mt_instructions="Please translate the English text into Spanish: | Please translate the English text into French: "
     echo ${mt_instructions}
@@ -85,12 +86,18 @@ port=$(( 104 + 26100 ))
             \
             --dataset_save_dir ${data_dir} \
             --remove_unused_columns False \
-             --manifest_files ${dataset_dir_or_path} \
-             --instructions "${mt_instructions}" \
-             --input_fields "src_text|src_text" \
-             --output_fields "tgt_text|tgt_text" \
-             --sample_probs "1|1" \
-             --padding_side "left" \
+            --manifest_files ${train_dataset_dir_or_path} \
+            --instructions "${mt_instructions}" \
+            --input_fields "src_text|src_text" \
+            --output_fields "tgt_text|tgt_text" \
+            --sample_probs "1|1" \
+            --eval_manifest_files ${eval_dataset_dir_or_path} \
+            --eval_instructions "${mt_instructions}" \
+            --eval_input_fields "src_text|src_text" \
+            --eval_output_fields "tgt_text|tgt_text" \
+            --eval_sample_probs "1|1" \
+            --padding_side "left" \
+            \
              --output_router_logits True \
              --use_layer_wise_balance True \
             \
@@ -100,9 +107,9 @@ port=$(( 104 + 26100 ))
             --bf16 True \
             \
             --torch_dtype bfloat16 \
-            --per_device_train_batch_size 4 \
-            --per_device_eval_batch_size 4 \
-            --gradient_accumulation_steps 2 \
+            --per_device_train_batch_size 2 \
+            --per_device_eval_batch_size 2 \
+            --gradient_accumulation_steps 1 \
             \
             --num_train_epochs 3 \
             --save_strategy steps \
@@ -113,7 +120,10 @@ port=$(( 104 + 26100 ))
             --weight_decay 0.0 \
             --warmup_ratio 0.03 \
             --lr_scheduler_type cosine \
-            --logging_steps 10 \
+            --logging_steps 5 \
+            --disable_tqdm True \
+            --eval_strategy steps \
+            --eval_steps 10 \
             --model_max_length 1024 \
             --gradient_checkpointing True \
             --save_only_model True   | tee -a ${output_dir}/train-bsz8-t0.log

@@ -22,7 +22,8 @@ import smoe.models.mixtral_2group.modeling_mixtral2group as ModelingMixtral2grou
 from smoe.models.mixtral_2group import Mixtral2GroupConfig, Mixtral2GroupForCausalLM
 from smoe.utils.conversation import Llama3ConversationTemplate
 
-# from datasets import DatasetDict, load_dataset, Dataset
+from sklearn.metrics import accuracy_score  ## , precision_recall_fscore_support
+# from datasets import load_metrix  ## DatasetDict, load_dataset, Dataset
 from smoe.utils.datasets.text_instruction_dataset import (
     TextInstructionDataCollator,
     load_text_instruction_datasets,
@@ -82,9 +83,9 @@ class DataArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    eval_data_dir: str = field(
-        default=None, metadata={"help": "Path to the evaluation data folder."}
-    )
+    # eval_data_dir: str = field(
+    #     default=None, metadata={"help": "Path to the evaluation data folder."}
+    # )
     # dataset_dir_or_path: str = field(
     #     default="data/merged",
     #     metadata={"help": "Path to dataset directory or a single jsonl file"},
@@ -128,15 +129,48 @@ class DataArguments:
             "dataset)"
         },
     )
+    eval_manifest_files: str = field(
+        default=None,
+        metadata={
+            "help": "manifest files (separated by '|' between datasets and then ',' between files) "
+            "of the training manifest files"
+        },
+    )
+    eval_instructions: str = field(
+        default="",
+        metadata={
+            "help": "instruction_fields (separated by '|'( to read from manifest_files"
+        },
+    )
+    eval_input_fields: str = field(
+        default="",
+        metadata={
+            "help": "input_fields (separated by '|') to read from manifest_files"
+        },
+    )
+    eval_output_fields: str = field(
+        default="",
+        metadata={
+            "help": "output_fields (separated by '|') to read from manifest_files"
+        },
+    )
+    eval_sample_probs: str = field(
+        default="",
+        metadata={
+            "help": "sample_probs (separated by '|') for each dataset (needed for more than one "
+            "dataset)"
+        },
+    )
+
     max_length: int = field(
         default=1024,
         metadata={
             "help": "samples that have more text tokens than this limit are removed"
         },
     )
-    dataset_save_dir: str = field(
-        default="", metadata={"help": "save the resulting dataset for future use"}
-    )
+    # dataset_save_dir: str = field(
+    #     default="", metadata={"help": "save the resulting dataset for future use"}
+    # )
     interleave_stopping_strategy: str = field(
         default="first_exhausted",
         metadata={
@@ -428,9 +462,12 @@ def train():
     train_dataset = None
     ### 5. Load dataset
     # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
-    train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer)
+    train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer, num_proc=8)
     print("pad_id, tokenizer         : {}".format(tokenizer.pad_token_id))
     print("pad_id, generation_config : {}".format(generation_config.pad_token_id))
+    eval_dataset = None
+    if data_args.eval_manifest_files is not None:
+        eval_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer, num_proc=8, do_eval=True)
     data_collator = TextInstructionDataCollator(pad_id=tokenizer.pad_token_id, padding_side=model_args.padding_side)
     print("For use_cache, must      padding_side=left ")
     logger.info("train dataset ready")
@@ -442,11 +479,26 @@ def train():
     # torch.cuda.memory._record_memory_history(enabled=True, trace_alloc_record_context=True, _enable_expensive_cpp=True)
     # print("starting memory tracking...ok")
     # print("callbacks : {}".format())
+    # training_args.include_inputs_for_metrics=True
+    training_args.do_eval = True
+    def compute_metrics(pred):
+        import pdb; pdb.set_trace()
+        labels = pred.label_ids
+        preds = pred.predictions.argmax(-1)
+        # precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='macro')
+        acc = accuracy_score(labels, preds)
+        return {
+            # 'Loss': loss,
+            'Accuracy': acc,
+        }
+
     trainer = llamaTrainer(
         model=model,
         args=training_args,
         data_collator=data_collator,
         train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        compute_metrics=compute_metrics,
         # tokenizer=tokenizer,
     )
     logger.info("trainer ready")

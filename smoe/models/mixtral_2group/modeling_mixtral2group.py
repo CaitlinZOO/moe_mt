@@ -2643,7 +2643,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
         if output_router_logits:
             # import pdb; pdb.set_trace()
             aux_loss = 0
-            if return_dict and np.random.random() < 0.02:
+            if return_dict and np.random.random() < 0.0001:
                 print(
                     "outputs.router_logits : {} \n {}".format(
                         len(outputs.router_logits), outputs.router_logits
@@ -2661,6 +2661,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 #   [tensor([[ 2.3438e+00, -5
                 # hidden_states.shape    是： torch.Size([4, 42, 2048])
                 # outputs.router_logits[3][0].shape  是： torch.Size([168, 4])
+                print("MixtralForCausalLM, cross entropy loss", loss)
 
             for group_idx in self.groups_used:
                 ## valid_router_logits 每组，几层，有几个
