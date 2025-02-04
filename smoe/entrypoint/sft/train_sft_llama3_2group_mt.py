@@ -110,6 +110,9 @@ class DataArguments:
             "help": "instruction_fields (separated by '|'( to read from manifest_files"
         },
     )
+    instruction_fields: str = field(
+        default="", metadata={"help": "instruction_fields (separated by '|'( to read from manifest_files"}
+    )
     input_fields: str = field(
         default="",
         metadata={
@@ -141,6 +144,9 @@ class DataArguments:
         metadata={
             "help": "instruction_fields (separated by '|'( to read from manifest_files"
         },
+    )
+    eval_instruction_fields: str = field(
+        default="", metadata={"help": "instruction_fields (separated by '|'( to read from manifest_files"}
     )
     eval_input_fields: str = field(
         default="",

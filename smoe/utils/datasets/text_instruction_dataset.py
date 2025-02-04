@@ -50,6 +50,7 @@ def process_dataset(
     tokenizer,
     _tokenize_str,
     instruction="",
+    instruction_field="",
     input_field="input",
     output_field="output",
     max_length=384,
@@ -60,6 +61,8 @@ def process_dataset(
         raise ValueError(f" input_field not set for processing batch: {batch}")
     if not output_field:
         raise ValueError(f"output_field not set for processing batch: {batch}")
+    if instruction_field:
+        instruction = batch[instruction_field]  ## batch["instruction"]
 
     begin_text_tokens = [128000]  ## "<|begin_of_text|>
     end_text_tokens = [128001]  ## "<|end_of_text|>"
@@ -164,6 +167,7 @@ def load_text_instruction_dataset(
     manifest_files="",
     tokenizer=None,
     instruction="",
+    instruction_field="",
     input_field="",
     output_field="",
     max_length=384,
@@ -229,6 +233,7 @@ def load_text_instruction_dataset(
             "tokenizer": tokenizer,
             "_tokenize_str": _tokenize_str,
             "instruction": instruction,
+            "instruction_field": instruction_field,
             "input_field": input_field,
             "output_field": output_field,
             "max_length": max_length,
@@ -261,9 +266,9 @@ def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1, do_eva
         except:
             logger.warning(f" load from {dataset_save_dir},   fail !! ")
 
-    manifest_keys = ["manifest_files", "instructions", "input_fields", "output_fields"]
+    manifest_keys = ["manifest_files", "instructions", "instruction_fields", "input_fields", "output_fields"]
     if do_eval:
-        manifest_keys = ["eval_manifest_files", "eval_instructions", "eval_input_fields", "eval_output_fields"]
+        manifest_keys = ["eval_manifest_files", "eval_instructions", "eval_instruction_fields", "eval_input_fields", "eval_output_fields"]
     
     if dataset is not None:
         num_datasets = len(dataset)
@@ -282,9 +287,9 @@ def load_text_instruction_datasets(data_args, tokenizer=None, num_proc=1, do_eva
             load_text_instruction_dataset(
                 manifest_files=manifest_values[0][i],
                 instruction=manifest_values[1][i],
-                #   instruction_field=manifest_values[3][i],
-                input_field=manifest_values[2][i],
-                output_field=manifest_values[3][i],
+                instruction_field=manifest_values[2][i],
+                input_field=manifest_values[3][i],
+                output_field=manifest_values[4][i],
                 tokenizer=tokenizer,
                 num_proc=num_proc,
             )

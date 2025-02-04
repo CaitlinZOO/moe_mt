@@ -109,6 +109,9 @@ class DataArguments:
             "help": "instruction_fields (separated by '|'( to read from manifest_files"
         },
     )
+    instruction_fields: str = field(
+        default="", metadata={"help": "instruction_fields (separated by '|'( to read from manifest_files"}
+    )
     input_fields: str = field(
         default="",
         metadata={
@@ -428,7 +431,7 @@ def train():
     train_dataset = None
     ### 5. Load dataset
     # Simple for llama3, we directly use '<|eot_id|>' (128009) for pad token. You should change for other models.
-    train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer)
+    train_dataset = load_text_instruction_datasets(data_args, tokenizer=tokenizer, num_proc=8)
     print("pad_id, tokenizer         : {}".format(tokenizer.pad_token_id))
     print("pad_id, generation_config : {}".format(generation_config.pad_token_id))
     data_collator = TextInstructionDataCollator(pad_id=tokenizer.pad_token_id)

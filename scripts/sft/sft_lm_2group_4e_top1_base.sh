@@ -39,11 +39,12 @@ export PATH=/usr/local/cuda/bin:$PATH
 
     dataset_dir_or_path="/home/zhanglinlin/zll/en-es/dev_jst.tsv|/home/zhanglinlin/zll/en-fr/dev_jst.tsv" ## src_text|src_text
     dataset_dir_or_path="/home/zhanglinlin/.cache/modelscope/hub/datasets/OmniData/UltraLink/fr_chat_agnostic.jsonl|/home/zhanglinlin/.cache/modelscope/hub/datasets/OmniData/UltraLink/zh_chat_agnostic.jsonl"
+    dataset_dir_or_path="/home/zhanglinlin/zll/mt/wmt18_x_en-t0.json"
     model_name_or_path="/home/zhanglinlin/outputs/moe_mt/converted_models/Llama3.2-1B-2group-4-4expert-MLP-MoE-Top1-Scale4.0-Insert4_use-fft"
 
     comment="Llama3.2-1B to mixtral-no-megablocks, 2group 4experts, top1"
     base_dir="/home/zhanglinlin/outputs/moe_mt/mixtral_2group"
-    output_dir="${base_dir}/sft_lm/Llama-1B_2group_4experts_top1_fft-ttt"
+    output_dir="${base_dir}/sft_lm/Llama-1B_2group_4experts_top1_fft-wmt18"
     data_dir=${output_dir}/data
     mkdir -p $output_dir $data_dir ${output_dir}/code
     cp -r ${ROOT}/pro/MoE/moe_mt/smoe ${output_dir}/code
@@ -71,11 +72,11 @@ echo "Request ${NUM_GPU} GPUs(${GPUS}) ."
 export CUDA_VISIBLE_DEVICES=${GPUS}
 port=$(( 104 + 26100 ))
 
-# /home/zhanglinlin/anaconda3/envs/smoe/bin/python
+# /home/zhanglinlin/anaconda3/envs/smoe/bin/python  CUDA_VISIBLE_DEVICES=4 python instruction output
 
 ## 单机多卡设置
 # python -m torch.distributed.run --nproc_per_node=4 --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR --master_port=${port} \
-    CUDA_VISIBLE_DEVICES=4 python smoe/entrypoint/sft/train_sft_llama3_2group_st.py \
+    CUDA_VISIBLE_DEVICES=4 python smoe/entrypoint/sft/train_sft_llama3_2group_lm.py \
             --do_train \
             --freeze_gate False \
             --evaluation_strategy no \
@@ -85,10 +86,11 @@ port=$(( 104 + 26100 ))
             --dataset_save_dir ${data_dir} \
             --remove_unused_columns False \
              --manifest_files ${dataset_dir_or_path} \
-             --instructions "|" \
-             --input_fields "id|id" \
-             --output_fields "id|id" \
-             --sample_probs "1|1" \
+             --instructions "" \
+             --instruction_fields "" \
+             --input_fields "input" \
+             --output_fields "input" \
+             --sample_probs "1" \
              --output_router_logits True \
              --use_layer_wise_balance True \
             \
@@ -100,7 +102,7 @@ port=$(( 104 + 26100 ))
             --torch_dtype bfloat16 \
             --per_device_train_batch_size 64 \
             --per_device_eval_batch_size 64 \
-            --gradient_accumulation_steps 2 \
+            --gradient_accumulation_steps 4 \
             \
             --num_train_epochs 3 \
             --save_strategy steps \
@@ -114,7 +116,7 @@ port=$(( 104 + 26100 ))
             --logging_steps 10 \
             --model_max_length 1024 \
             --gradient_checkpointing True \
-            --save_only_model True   | tee -a ${output_dir}/train-bsz8-t1.log
+            --save_only_model True   | tee -a ${output_dir}/train-bsz8-t0.log
     # --disable_tqdm True \
   ##--tf32 True \
 # }
