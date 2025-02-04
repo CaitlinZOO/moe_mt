@@ -121,13 +121,13 @@ def process_dataset(
         start_mask = [1] * len(start_ids)
         start_labels = [-100] * len(start_ids)
         instruction_ids, instruction_mask, instruction_labels = [], [], []
-        if len(batch[input_field]) < 2:
+        if len(batch[input_field]) < 5:
             to_keep = False
         input_str = batch[input_field] + "<|end_of_text|>"
         input_ids = _tokenize_str(content=input_str)
         input_mask = [1] * len(input_ids)
         input_labels = copy.deepcopy(input_ids)  ## [-100] * len(input_ids)
-        input_labels[:2] = [-100] * 2
+        input_labels[:4] = [-100] * 4
         input_labels[-2:] = [-100] * 2
         suffix_ids = im_end_tokens
         suffix_mask = [1] * len(suffix_ids)
