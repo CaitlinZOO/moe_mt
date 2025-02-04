@@ -26,7 +26,7 @@ def preprocess(
     res = tokenizer(
         conversations,
         return_tensors="pt",
-        # padding="max_length",
+        # padding="max_length",  
         padding=False,
         max_length=tokenizer.model_max_length,
         truncation=True,
