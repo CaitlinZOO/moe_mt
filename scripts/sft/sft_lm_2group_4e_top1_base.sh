@@ -39,7 +39,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 
     dataset_dir_or_path="/home/zhanglinlin/zll/en-es/dev_jst.tsv|/home/zhanglinlin/zll/en-fr/dev_jst.tsv" ## src_text|src_text
     dataset_dir_or_path="/home/zhanglinlin/.cache/modelscope/hub/datasets/OmniData/UltraLink/fr_chat_agnostic.jsonl|/home/zhanglinlin/.cache/modelscope/hub/datasets/OmniData/UltraLink/zh_chat_agnostic.jsonl"
-    dataset_dir_or_path="/home/zhanglinlin/zll/mt/wmt18_x_en-t0.json"
+    dataset_dir_or_path="/home/zhanglinlin/zll/mt/wmt18_x_en-t0.json|/home/zhanglinlin/zll/mt/wmt18_x_en-t0.json"
     model_name_or_path="/home/zhanglinlin/outputs/moe_mt/converted_models/Llama3.2-1B-2group-4-4expert-MLP-MoE-Top1-Scale4.0-Insert4_use-fft"
 
     comment="Llama3.2-1B to mixtral-no-megablocks, 2group 4experts, top1"
@@ -86,11 +86,11 @@ port=$(( 104 + 26100 ))
             --dataset_save_dir ${data_dir} \
             --remove_unused_columns False \
              --manifest_files ${dataset_dir_or_path} \
-             --instructions "" \
-             --instruction_fields "" \
-             --input_fields "input" \
-             --output_fields "input" \
-             --sample_probs "1" \
+             --instructions "|" \
+             --instruction_fields "|" \
+             --input_fields "input|output" \
+             --output_fields "input|output" \
+             --sample_probs "0.8|0.2" \
              --output_router_logits True \
              --use_layer_wise_balance True \
             \
