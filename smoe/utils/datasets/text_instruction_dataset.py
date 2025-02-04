@@ -111,7 +111,7 @@ def process_dataset(
     ) > max_length:
         to_keep = False
 
-    ### 只做 ASR 任务 不加instruct
+    ### 只做 lm 任务 不加instruct
     if (
         instruction is None or instruction == [] or instruction == ""
     ):  # and input_field == output_field
