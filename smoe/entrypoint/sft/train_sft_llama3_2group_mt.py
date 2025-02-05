@@ -513,22 +513,33 @@ def train():
     # 8. Training
     model.set_groups_used([0, 1])  ## only first group experts will used in training
     if training_args.do_train:
+        # import pdb;pdb.set_trace()
         if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
             logger.info("resume training from ckpt")
-            trainer.train(resume_from_checkpoint=True)
+            train_result = trainer.train(resume_from_checkpoint=True)
         else:
             logger.info("start training")
-            trainer.train()
+            train_result = trainer.train()
+            
+        if trainer.is_deepspeed_enabled:
+            trainer.save_model()
+        else:
+            trainer_save_model_safe(trainer)
+        trainer.log_metrics("train", train_result.metrics)
+        trainer.save_metrics("train", train_result.metrics)
+        trainer.save_state()
 
     # Save model
     if training_args.save_final_ckpt:
         logger.info("training finished, dumping model")
-        model.config.use_cache = True  ## True
+        model.config.use_cache = False  ## True
         trainer.save_state()  # for debug, not save
         if trainer.is_deepspeed_enabled:
             trainer.save_model()
         else:
             trainer_save_model_safe(trainer)
+        tokenizer.save_pretrained(training_args.output_dir)
+        generation_config.save_pretrained(training_args.output_dir)
 
     logger.info("🎉 All done~")
 
