@@ -310,8 +310,10 @@ def load_balancing_loss_func(
         ) * (num_experts**2)
         all_balance_losses.append(balance_loss.reshape(1))
 
-    all_balance_losses = torch.cat(all_balance_losses).mean()  # ✨
-
+    # all_balance_losses = torch.cat(all_balance_losses).mean()  # ✨
+    device = all_balance_losses[0].device # 取第一个 Tensor 的设备
+    all_balance_losses = [t.to(device)for t in all_balance_losses] # 统一到同一设备
+    all_balance_losses = torch.cat(all_balance_losses).mean()
     return all_balance_losses
 
 
