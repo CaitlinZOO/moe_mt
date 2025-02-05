@@ -135,7 +135,7 @@ def process_dataset(
         suffix_labels = [-100] * len(suffix_ids)  ##suffix_ids
         if (len(start_ids) + len(input_ids) + len(suffix_ids)) > max_length:
             to_keep = False
-    if np.random.random() < 0.000001:
+    if np.random.random() < 0.0000001:
         print("instruction : {} \n {}".format(len(instruction.split()), instruction))
         input_text = batch[input_field]
         output_text = batch[output_field]
