@@ -481,6 +481,7 @@ def train():
     # Set seed before initializing model.
     set_seed(training_args.seed)
     # 7. Initialize Trainer
+    model.to('cuda')
     # print("starting memory tracking...")
     # torch.cuda.memory._record_memory_history(enabled=True, trace_alloc_record_context=True, _enable_expensive_cpp=True)
     # print("starting memory tracking...ok")
