@@ -2686,9 +2686,11 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                 # import pdb; pdb.set_trace()
                 # loss += self.router_aux_loss_coef * aux_loss
                 loss_mlp = self.router_aux_loss_coef * aux_loss
-                loss = loss + loss_mlp
                 if np.random.random() < 0.02:
-                    print("Mixtral2GroupForCausalLM, mlp aux_loss: ", loss_mlp)
+                    logger.info("Mixtral2GroupForCausalLM,   lm loss: ", loss)
+                    logger.info("Mixtral2GroupForCausalLM,   self.router_aux_loss_coef: ", self.router_aux_loss_coef)
+                    logger.info("Mixtral2GroupForCausalLM,   mlp    aux_loss: ", loss_mlp)
+                loss = loss + loss_mlp
 
             # 🔍 for Attention MoE
             #################################

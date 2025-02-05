@@ -134,10 +134,16 @@ def process_dataset(
         suffix_labels = [-100] * len(suffix_ids)  ##suffix_ids
         if (len(start_ids) + len(input_ids) + len(suffix_ids)) > max_length:
             to_keep = False
-        # print("start_ids : {} \n {}".format(len(start_ids), start_ids))
-        # print("instruction_ids : {} \n {}".format(len(instruction_ids), instruction_ids))
-        # print("input_ids : {} \n {}".format(len(input_ids), input_ids))
-        # print("suffix_ids : {} \n {}".format(len(suffix_ids), suffix_ids))
+    if np.random.random() < 0.00001:
+        print("instruction : {} \n {}".format(len(instruction.split()), instruction))
+        input_text = batch[input_field]
+        output_text = batch[output_field]
+        print("input_text : {} \n {}".format(len(input_text.split()), input_text))
+        print("output_text : {} \n {}".format(len(output_text.split()), output_text))
+        print("start_ids : {} \n {}".format(len(start_ids), start_ids))
+        print("instruction_ids : {} \n {}".format(len(instruction_ids), instruction_ids))
+        print("input_ids : {} \n {}".format(len(input_ids), input_ids))
+        print("suffix_ids : {} \n {}".format(len(suffix_ids), suffix_ids))
 
     # batch["start_ids"] = start_ids
     # batch["start_mask"] = start_mask
