@@ -229,14 +229,14 @@ class Llama3ConversationTemplate(Conversation):
         prompt_str = ""
         if role == "" and context != "":
             # prompt_str += self.message_template_gpt.format(message=context)
-            prompt_str += "{context}<|eot_id|>"
+            prompt_str += context + "<|eot_id|>"
         elif role != "" and context == "":
             # prompt_str += self.gen_template.format(role=role)
-            prompt_str += "<|start_header_id|>{role}<|end_header_id|>"
+            prompt_str += "<|start_header_id|>" + role + "<|end_header_id|>"
         else:  ## 都不为空
             # prompt_str += self.message_template_role.format(role=role, message=context)
             prompt_str += (
-                "<|start_header_id|>{role}<|end_header_id|>\n\n{context}<|eot_id|>"
+                "<|start_header_id|>" + role + "<|end_header_id|>\n\n" + context + "<|eot_id|>"
             )
 
         if add_eos:

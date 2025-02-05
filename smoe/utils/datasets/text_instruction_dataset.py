@@ -117,6 +117,7 @@ def process_dataset(
     ):  # and input_field == output_field
         ###  qwen_tokenizer.eod_id 151643   qwen_tokenizer.im_start_id 151644
         ###
+        # import pdb; pdb.set_trace()
         start_ids = begin_text_tokens + nl_tokens
         start_mask = [1] * len(start_ids)
         start_labels = [-100] * len(start_ids)
@@ -134,7 +135,7 @@ def process_dataset(
         suffix_labels = [-100] * len(suffix_ids)  ##suffix_ids
         if (len(start_ids) + len(input_ids) + len(suffix_ids)) > max_length:
             to_keep = False
-    if np.random.random() < 0.00001:
+    if np.random.random() < 0.000001:
         print("instruction : {} \n {}".format(len(instruction.split()), instruction))
         input_text = batch[input_field]
         output_text = batch[output_field]
