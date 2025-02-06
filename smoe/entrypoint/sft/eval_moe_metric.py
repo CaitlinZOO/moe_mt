@@ -1,6 +1,7 @@
 import sacrebleu
 from tqdm import tqdm
 import os
+import argparse
 import json
 import jieba
 import nltk
@@ -129,6 +130,16 @@ def calculate_metrics(reference, hypothesis, tgt_lang = 'en'):
 def get_eb_answer(text, model):
     return text
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--gen_dir", type=str, default="/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/",
+        help="Path to the output file", required=True
+    )
+    parser.add_argument(
+        "--result_file", type=str, default="/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/result.txt",
+        help="Path to the output file", required=True
+    )
+    args = parser.parse_args()
 
     # models = ['llama3','qwen2','fuxi']
     models = [  
@@ -143,8 +154,8 @@ def main():
     pbar = tqdm(total=int(total), desc='Progress', unit='item')
     for llm in models:
         # dir_path = f'../baseline/output/{llm}/'
-        dir_path = f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/'
-        res_file = open(f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/result.txt', 'w', encoding='utf-8')
+        dir_path = args.gen_dir ## f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/'
+        res_file = open(args.result_file, 'w', encoding='utf-8')
         # print(dir_path)
         # continue
         # if llm in ['deepseek', 'internvl']:
@@ -182,7 +193,7 @@ def main():
     
                             # hypothesis = re.sub(r'[^\w\s]', ' ', hypothesis)
                             # hypothesis = re.sub(r'\s+', ' ', hypothesis)
-                            hypothesis = hypothesis.replace('{', '').replace('}', '').replace('`','').replace("\n",' ').lower().strip()
+                            hypothesis = hypothesis.replace('{', '').replace('}', '').replace('`','').replace("<|begin_of_text|>",'').replace("\n\n",'').replace("<|eot_id|>",'').replace("\n",' ').lower().strip()
                             reference  = item['output'].replace("\n",' ').lower()
                             # tgt_lang   = 'en'
                             # print('REF:', reference)
