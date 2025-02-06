@@ -144,6 +144,7 @@ def main():
     for llm in models:
         # dir_path = f'../baseline/output/{llm}/'
         dir_path = f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/'
+        res_file = open(f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/result.txt', 'w', encoding='utf-8')
         # print(dir_path)
         # continue
         # if llm in ['deepseek', 'internvl']:
@@ -157,6 +158,8 @@ def main():
                     # print('===', file_path, '===')
 
                     with open(file_path, 'r', encoding='utf-8') as f:
+                        all_bleu, all_meteor = 0.0, 0.0
+                        line_n = 0
                         for line in f.readlines():
                             item = json.loads(line)
                             item['filename'] = file.replace('.jsonl', '')
@@ -190,7 +193,14 @@ def main():
                             #     bleu.score = 100
                             # print('BLEU:', bleu.score, '\tChrF++:', chrf.score)
                             print(llm, item['filename'], item['id'], bleu.score, meteor * 100)
+                            line_n += 1
+                            all_bleu += bleu.score
+                            all_meteor += meteor * 100
                             pbar.update(1)# break
+                        
+                        bleu_f = all_bleu / float(line_n)
+                        meteor_f = all_meteor / float(line_n)
+                        res_file.write(f"{llm}\t{item['filename']}\tbleu: {bleu_f}\tmeteor: {meteor_f}\n")
 
     pbar.close()
 
