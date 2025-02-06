@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES=6 nohup /home/zhanglinlin/anaconda3/envs/smoe_ori/bin/pytho
    --gen_dir $output_path \
    --result_file $output_path/result.txt
 
-for src in cs ; do
+for src in cs de et fi ru tr zh; do
     echo " $src-en  sacrebleu:" >> $output_path/result.txt
     /home/zhanglinlin/anaconda3/envs/smoe_ori/bin/python smoe/utils/eval_utils/compute_bleu.py \
        $output_path/$src-en.jsonl  en \
