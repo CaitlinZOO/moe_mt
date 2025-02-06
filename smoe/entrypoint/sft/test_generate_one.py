@@ -145,7 +145,7 @@ def main():
                     import pdb; pdb.set_trace()
                     # response = response[len(prompt):].strip().split('\n')[0]
                     # response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|eot_id|>")[0]
-                    response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|end_of_text|>")[0]
+                    response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|eot_id|>")[0].split("<|end_of_text|>")[0]
                     item['pred_text'] = response_0
                     item['id'] = i 
                     res = json.dumps(item, ensure_ascii=False)
