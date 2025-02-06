@@ -58,10 +58,10 @@ def num_tokens_from_string(text):
 # cs-en.json  de-en.json  et-en.json  fi-en.json  ru-en.json  tr-en.json  zh-en.json
 
 langs = [
-    # 'cs',
+    'cs',
     # 'de',
-    'et',
-    'fi',
+    # 'et',
+    # 'fi',
     # 'ru',
     # 'tr',
     # 'zh'
@@ -71,7 +71,7 @@ def main():
 
     for lang in langs:
         file_path = root + lang +'-en.json' 
-        output_file = f'/home/zhanglinlin/zll/mt/wmt_test/baseline/output/llama3_mixtral2group/{lang}-en.jsonl'
+        output_file = f'/home/zhanglinlin/zll/mt/wmt_test/llama3_mixtral2group/output/1of3_0/{lang}-en.jsonl'
         # 确保文件存在
         if not os.path.exists(file_path):
             print(f"警告: 文件 {file_path} 不存在，跳过...")
