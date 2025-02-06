@@ -12,11 +12,11 @@ from smoe.utils.conversation import Llama3ConversationTemplate
 
 
 global_devices = [i for i in range(torch.cuda.device_count())] if torch.cuda.device_count() >= 1 else ["cpu"]
-max_memory = {k: '32GB' for k in global_devices}
+max_memory = {k: '64GB' for k in global_devices}
 
 # print(global_devices)
 # exit()
-model_name_or_path = "/ssd3/data/acl25/lora/x-en/lama3_1b_merge"
+model_name_or_path = "/home/zhanglinlin/outputs/moe_mt/mixtral_2group/sft_mt/Llama-1B_2group_4experts_top1_fft-wm18-1of3"
 
 model = AutoModelForCausalLM.from_pretrained(
     model_name_or_path,
