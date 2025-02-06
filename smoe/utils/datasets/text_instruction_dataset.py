@@ -114,6 +114,7 @@ def process_dataset(
         to_keep = False
 
     ### 只做 lm 任务 不加instruct
+    import pdb; pdb.set_trace()
     if (
         instruction is None or instruction == [] or instruction == ""
     ):  # and input_field == output_field
@@ -148,7 +149,9 @@ def process_dataset(
         print("start_ids : {} \n {}".format(len(start_ids), start_ids))
         print("instruction_ids : {} \n {}".format(len(instruction_ids), instruction_ids))
         print("input_ids : {} \n {}".format(len(input_ids), input_ids))
-        print("suffix_ids : {} \n {}".format(len(suffix_ids), suffix_ids))
+        print("suffix_ids : {} \n {}\n".format(len(suffix_ids), suffix_ids))
+        all_input = start_ids + instruction_ids + input_ids + suffix_ids
+        print(tokenizer.batch_decode([all_input], skip_special_tokens=False, clean_up_tokenization_spaces=False)[0])
 
     # batch["start_ids"] = start_ids
     # batch["start_mask"] = start_mask
@@ -438,18 +441,19 @@ class TextInstructionDataCollatorALL:
 
 def offline_process(
     # dataroot="",
-    manifest_files="/home/zhanglinlin/zll/en-es/dev_jst.tsv",
+    manifest_files="/home/zhanglinlin/zll/mt/wmt_test/wmt18_text_x-en/de-en.json",
     tokenizer="",
     instruction="",
-    input_field="src_text",
-    output_field="tgt_text",
+    instruction_field="instruction",
+    input_field="input",
+    output_field="output",
     max_length=384,
     num_proc=8,
 ):
     import transformers
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        pretrained_model_name_or_path="/home/zhanglinlin/outputs/moe_mt/converted_models/Llama3.2-1B-2group-4-4expert-MLP-MoE-Top1-Scale4.0-Insert4",
+        pretrained_model_name_or_path="/home/zhanglinlin/outputs/moe_mt/converted_models/Llama3.2-1B-2group-4-4expert-MLP-MoE-Top1-Scale4.0-Insert4_use-fft",
         cache_dir=None,
         model_max_length=max_length,
         padding_side="right",
@@ -461,6 +465,7 @@ def offline_process(
         manifest_files,
         tokenizer=tokenizer,
         instruction=instruction,
+        instruction_field=instruction_field,
         input_field=input_field,
         output_field=output_field,
         max_length=max_length,
@@ -479,11 +484,12 @@ if __name__ == "__main__":
         }
     )
     # offline_process(
-    #     manifest_files="/home/zhanglinlin/zll/en-es/dev_jst.tsv",
+    #     manifest_files="/home/zhanglinlin/zll/mt/wmt_test/wmt18_text_x-en/de-en.json",
     # tokenizer="",
     # instruction="",
-    # input_field="src_text",
-    # output_field="tgt_text",
+    # instruction_field="instruction",
+    # input_field="input",
+    # output_field="output",
     # max_length=384,
     # num_proc=1,
     # )
