@@ -67,10 +67,10 @@ def process_dataset(
     begin_text_tokens = [128000]  ## "<|begin_of_text|>
     end_text_tokens = [128001]  ## "<|end_of_text|>"
     im_end_tokens = [128009]  ##  self.eot: str = "<|eot_id|>"
-    nl_tokens = tokenizer.encode(text="\n\n")  ## llama
+    nl_tokens = tokenizer.encode(text="\n\n", add_special_tokens=False)  ## llama
 
     start_ids = []  ##  self.eot: str = "<|eot_id|>"
-    start_ids += _tokenize_str(role="system", content="You are a helpful assistant.")
+    start_ids += begin_text_tokens + _tokenize_str(role="system", content="You are a helpful assistant.")
     # start_ids += nl_tokens
     start_ids += _tokenize_str(role="user")
     start_mask = [1] * len(start_ids)
@@ -78,13 +78,14 @@ def process_dataset(
 
     instruction_ids, instruction_mask, instruction_labels = [], [], []
     if instruction:
-        instruction_ids = _tokenize_str(content=instruction)
+        instruction_ids = nl_tokens + _tokenize_str(content=instruction)
         instruction_mask = [1] * len(instruction_ids)
         instruction_labels = [-100] * len(instruction_ids)
 
     input_ids, input_mask, input_labels = [], [], []
     if input_field:
-        input_ids = nl_tokens + _tokenize_str(content=batch[input_field])
+        ## nl_tokens + _tokenize_str(content=batch[input_field])
+        input_ids = nl_tokens + begin_text_tokens + tokenizer.encode(text=batch[input_field], add_special_tokens=False) + end_text_tokens + im_end_tokens
         input_mask = [1] * len(input_ids)
         input_labels = [-100] * len(input_ids)  ##   input_ids
         if len(batch[input_field]) < 1 or len(input_ids) < 2:
@@ -97,7 +98,8 @@ def process_dataset(
     suffix_labels += [-100] * len(new_ids)
 
     if output_field:
-        new_ids = nl_tokens + _tokenize_str(content=batch[output_field])
+        # nl_tokens + _tokenize_str(content=batch[output_field])
+        new_ids = nl_tokens + begin_text_tokens + tokenizer.encode(text=batch[output_field], add_special_tokens=False) + end_text_tokens + im_end_tokens
         if len(batch[output_field]) < 1:
             to_keep = False
     else:
@@ -118,6 +120,7 @@ def process_dataset(
         ###  qwen_tokenizer.eod_id 151643   qwen_tokenizer.im_start_id 151644
         ###
         # import pdb; pdb.set_trace()
+        # begin_text_tokens + nl_tokens
         start_ids = begin_text_tokens + nl_tokens
         start_mask = [1] * len(start_ids)
         start_labels = [-100] * len(start_ids)
@@ -125,7 +128,8 @@ def process_dataset(
         if len(batch[input_field]) < 5:
             to_keep = False
         input_str = batch[input_field] + "<|end_of_text|>"
-        input_ids = _tokenize_str(content=input_str)
+        # _tokenize_str(content=input_str)
+        input_ids = tokenizer.encode(text=input_str, add_special_tokens=False)
         input_mask = [1] * len(input_ids)
         input_labels = copy.deepcopy(input_ids)  ## [-100] * len(input_ids)
         input_labels[:4] = [-100] * 4
@@ -231,7 +235,7 @@ def load_text_instruction_dataset(
             role=role, context=content, add_eos=False
         )
         # tokens += LlamaTokenizer.encode(con_str, add_special_tokens=False)
-        tokens += tokenizer.encode(text=con_str)
+        tokens += tokenizer.encode(text=con_str, add_special_tokens=False) ## 修改，不添加 [128000]  ## "<|begin_of_text|>
         return tokens
 
     dataset = raw_dataset.map(
