@@ -223,7 +223,7 @@ class Llama3ConversationTemplate(Conversation):
 
     @classmethod
     def get_context_str(
-        self, role: str = "", context: str = "please do it", add_eos: bool = False
+        self, role: str = "", context: str = "", add_eos: bool = False
     ) -> str:
         # conv = cls()
         prompt_str = ""
