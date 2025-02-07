@@ -115,7 +115,7 @@ def main():
                     prompt += "\n\n" + "<|begin_of_text|>" + item['input'] + "<|end_of_text|>" + "<|eot_id|>"
                     prompt += llama_template.get_context_str(role="assistant", context="", add_eos=False) + "\n\n"
                     # print(prompt)
-                    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+                    inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).to(model.device)
 
 
                     input_ids = begin_text_tokens + _tokenize_str(role="system", content="You are a helpful assistant.")
