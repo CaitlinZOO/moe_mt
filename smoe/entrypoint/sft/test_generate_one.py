@@ -142,7 +142,7 @@ def main():
                     # response = tokenizer.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
                     response_0 = tokenizer.batch_decode(generate_ids_0, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
                     print(response_0+"\n======")
-                    import pdb; pdb.set_trace()
+                    # import pdb; pdb.set_trace()
                     # response = response[len(prompt):].strip().split('\n')[0]
                     # response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|eot_id|>")[0]
                     response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|eot_id|>")[0].split("<|end_of_text|>")[0]

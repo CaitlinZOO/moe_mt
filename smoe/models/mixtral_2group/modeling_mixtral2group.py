@@ -268,6 +268,7 @@ def load_balancing_loss_func(
         isinstance(gate_logits, Iterable) and len(gate_logits) == 0
     ):
         return 0
+    # import pdb; pdb.set_trace() ## gate_logits长度是4（只选了4层加moe），每一个是torch.Size([1744, 4])
 
     # ✨ Here is the fix for balance loss in Mixtral.
     # We should calculate the balance loss in a layer-wise manner otherwise it may lead to degenerated solutions.
@@ -283,28 +284,43 @@ def load_balancing_loss_func(
     all_balance_losses = []
 
     for logits in gate_logits:
-        routing_weights, selected_experts = torch.topk(logits, top_k, dim=-1)
-        routing_weights = routing_weights.softmax(dim=-1)
-
+        # ## [1774 * 1]选出来的top1最大的routing_weights是[[2.3438],[5.3750],[4.5000],...,[5.7500],[5.7500],[5.7500]]， 
+        # ## [1774 * 1]选出来的top1最大的routing_weights的idx是[[0],[0],[2],...,[2],[2],[2]]
+        # routing_weights, selected_experts = torch.topk(logits, top_k, dim=-1)
+        # routing_weights = routing_weights.softmax(dim=-1) ## 变成[1774 * 1]的[[1.],[1.],[1.],...,[1.],[1.],[1.]]
+        ## 源代码顺序错了，要先做softmax，才能计算概率，不然全变成1
+        scores = F.softmax(logits, dim=1, dtype=torch.float) ## [1774 * 4] 这是选中expert的概率
+        routing_weights, selected_experts = torch.topk(scores, top_k, dim=-1)## [1774 * 1]的[[0.9763],[0.9923],[0.9361],...,[0.8717],[0.8717],[0.8717]]
+        
         # cast the expert indices to int64, otherwise one-hot encoding will fail
         if selected_experts.dtype != torch.int64:
             selected_experts = selected_experts.to(torch.int64)
 
-        if len(selected_experts.shape) == 2:
+        if len(selected_experts.shape) == 2: # 变成[1774 * 1]选出来的top1最大的routing_weights的idx是[[[0]],[[0]],[[2]],...,[[2]],[[2]],[[2]]]
             selected_experts = selected_experts.unsqueeze(2)
 
         expert_mask = torch.nn.functional.one_hot(selected_experts, num_experts)
 
         # For a given token, determine if it was routed to a given expert.
-        expert_mask = torch.max(expert_mask, axis=-2).values
+        expert_mask = torch.max(expert_mask, axis=-2).values 
+        ## [1744, 1, 4]的tensor([[[1, 0, 0, 0]],
+        #                        [[1, 0, 0, 0]],
+        #                        [[0, 0, 1, 0]],
+        #                        ...,
+        #                        [[0, 0, 1, 0]],
+        #                        [[0, 0, 1, 0]],
+        #                        [[0, 0, 1, 0]]], device='cuda:0')
 
         # cast to float32 otherwise mean will fail
         expert_mask = expert_mask.to(torch.float32)
-        tokens_per_group_and_expert = torch.mean(expert_mask, axis=-2)
+        tokens_per_group_and_expert = torch.mean(expert_mask, axis=-2) ## 我们只选了top1，值没有变化，形状从[1744, 1, 4]变成[1744, 4]
 
-        router_prob_per_group_and_expert = torch.mean(routing_weights, axis=-1)
+        router_prob_per_group_and_expert = torch.mean(routing_weights, axis=-1) ## 我们只选了top1，值没有变化，形状从[1744, 1]变成[1744]
+        ## 形状都是[1744]，修改后，概率从全为1，变成tensor([0.9763, 0.9923, 0.9361,  ..., 0.8717, 0.8717, 0.8717], device='cuda:0')
 
         # ✨ balance loss for this layer
+        # tokens_per_group_and_expert * router_prob_per_group_and_expert.unsqueeze(-1)是[1744, 4],只选了top1，还是tokens_per_group_and_expert
+        # 
         balance_loss = torch.mean(
             tokens_per_group_and_expert * router_prob_per_group_and_expert.unsqueeze(-1)
         ) * (num_experts**2)
@@ -2013,8 +2029,8 @@ class Mixtral2GroupMoeBlock(nn.Module):
         self, hidden_states: torch.Tensor, groups_used=[0, 1], use_fft=False
     ) -> torch.Tensor:
         """ """
-        batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states = hidden_states.view(-1, hidden_dim)
+        batch_size, sequence_length, hidden_dim = hidden_states.shape  ## [16 * 109 * 2048]
+        hidden_states = hidden_states.view(-1, hidden_dim)  ## [1774 * 2048]
         # router_logits: (batch * sequence_length, n_experts)
         # router_logits = self.gate(hidden_states)
 
@@ -2034,15 +2050,15 @@ class Mixtral2GroupMoeBlock(nn.Module):
             hidden_states_fft = hidden_states_fft.real.to(
                 dtype=hidden_states.dtype, device=hidden_states.device
             )
-            gate_hidden_states = torch.cat([hidden_states, hidden_states_fft], dim=-1)
+            gate_hidden_states = torch.cat([hidden_states, hidden_states_fft], dim=-1) ## [1774 * 4096]
 
             # print("gate_hidden_states 3 : {} \n {}".format(gate_hidden_states.shape, gate_hidden_states))
         for group_idx in groups_used:  ## 不同的group
-            router_logits = self.groups[group_idx].gate(gate_hidden_states)
+            router_logits = self.groups[group_idx].gate(gate_hidden_states) ## [1774 * 4]
             all_group_router_logits.append(router_logits)
-            scores = F.softmax(router_logits, dim=1, dtype=torch.float)
-            routing_weights, selected_experts = torch.topk(scores, self.top_k, dim=-1)
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+            scores = F.softmax(router_logits, dim=1, dtype=torch.float) ## [1774 * 4]
+            routing_weights, selected_experts = torch.topk(scores, self.top_k, dim=-1) ## [1774 * 1]选出来的top1最大的scores是[[0.9763],[0.9923],[0.9361],...,[0.8717],[0.8717],[0.8717]]， [1774 * 1]选出来的top1最大的scores的idx是[[0],[0],[2],...,[2],[2],[2]]
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True) ### 选top1，会让[1774 * 1]的[[0.9763],[0.9923],[0.9361],...,[0.8717],[0.8717],[0.8717]]变成[1774 * 1]的[[1.],[1.],[1.],...,[1.],[1.],[1.]]
             # we cast back to the input dtype
             routing_weights = routing_weights.to(hidden_states.dtype)
 
@@ -2050,26 +2066,32 @@ class Mixtral2GroupMoeBlock(nn.Module):
                 (batch_size * sequence_length, hidden_dim),
                 dtype=hidden_states.dtype,
                 device=hidden_states.device,
-            )
+            ) ## torch.Size([1744, 2048])  
 
             # One hot encode the selected experts to create an expert mask
             # this will be used to easily index which expert is going to be sollicitated
             # expert_mask = torch.nn.functional.one_hot(
             #     selected_experts, num_classes=self.num_experts
             # ).permute(2, 1, 0)
+            ### torch.nn.functional.one_hot(selected_experts, num_classes=4)是[1744, 1, 4]的[[[1, 0, 0, 0]],[[1, 0, 0, 0]],[[0, 0, 1, 0]],...,[[0, 0, 1, 0]],[[0, 0, 1, 0]],[[0, 0, 1, 0]]]
             expert_mask = torch.nn.functional.one_hot(
                 selected_experts, num_classes=self.num_group_experts[group_idx]
             ).permute(2, 1, 0)
+            ## expert_mask是[4, 1, 1744]的
+            # tensor([[[1, 1, 0,  ..., 0, 0, 0]],
+            #         [[0, 0, 0,  ..., 0, 0, 0]],
+            #         [[0, 0, 1,  ..., 1, 1, 1]],
+            #         [[0, 0, 0,  ..., 0, 0, 0]]], device='cuda:0')
 
             # Loop over all available experts in the model and perform the computation on each expert
             for expert_idx in range(self.num_group_experts[group_idx]):
                 expert_layer = self.groups[group_idx].experts[expert_idx]
-                idx, top_x = torch.where(expert_mask[expert_idx])
+                idx, top_x = torch.where(expert_mask[expert_idx]) ## idx是[145]的全零[0,0,0,...,0,0](总是0，无论哪个expert_idx) top_x是选择0 expert的idx[145]的[0,1,9,...,1668,1677]
 
                 if (
                     top_x.shape[0] == 0 and not self.training
                 ):  # skip during training will lead to asynchrony among different GPUs and blocks the training!
-                    continue
+                    continue ## 一个也没有选当前expert
 
                 # in torch it is faster to index using lists than torch tensors
                 top_x_list = top_x.tolist()
@@ -2078,16 +2100,16 @@ class Mixtral2GroupMoeBlock(nn.Module):
                 # Index the correct hidden states and compute the expert hidden state for
                 # the current expert. We need to make sure to multiply the output hidden
                 # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-                current_state = hidden_states[None, top_x_list].reshape(-1, hidden_dim)
+                current_state = hidden_states[None, top_x_list].reshape(-1, hidden_dim) ## current_state是[145, 2048]的
                 current_hidden_states = expert_layer(current_state) * (
                     routing_weights[top_x_list, idx_list, None] * self.scale_factor
-                )
+                ) ## current_hidden_states是[145, 2048]的
 
                 # However `index_add_` only support torch tensors for indexing so we'll use
                 # the `top_x` tensor here.
                 group_hidden_states.index_add_(
                     0, top_x, current_hidden_states.to(hidden_states.dtype)
-                )
+                ) ## group_hidden_states是[1744, 2048]的
 
             all_group_hidden_states.append(group_hidden_states)
 
@@ -2659,7 +2681,7 @@ class Mixtral2GroupForCausalLM(Mixtral2GroupPreTrainedModel):
                         len(outputs.router_logits[3]), outputs.router_logits[3]
                     )
                 )
-                # outputs.router_logits[3] 是list 长度是: 1 
+                # outputs.router_logits[3] 是list 长度是: 1 做mt长度是:2
                 #   [tensor([[ 2.3438e+00, -5
                 # hidden_states.shape    是： torch.Size([4, 42, 2048])
                 # outputs.router_logits[3][0].shape  是： torch.Size([168, 4])
