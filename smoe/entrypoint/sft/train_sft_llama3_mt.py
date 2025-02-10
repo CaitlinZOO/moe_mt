@@ -195,22 +195,6 @@ class TrainingArguments(transformers.TrainingArguments):
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."
         },
     )
-    freeze_gate: bool = field(
-        default=False,
-        metadata={"help": "Whether to freeze the gate during training."},
-    )
-    output_router_logits: bool = field(
-        default=True,
-        metadata={"help": "Whether to output router logits."},
-    )
-    use_layer_wise_balance: bool = field(
-        default=True,
-        metadata={"help": "Whether to use router BL loss."},
-    )
-    router_aux_loss_coef: float = field(
-        default=0.01,
-        metadata={"help": "the loss weight for the router balence loss"},
-    )
     save_final_ckpt: bool = field(
         default=True,
         metadata={"help": "Whether to save final checkpoint."},
@@ -278,20 +262,11 @@ def get_model(
     attn_impl: str = "flash_attention_2",
     cache_dir: str = None,
     trust_remote_code: bool = False,
-    output_router_logits: bool = True,
-    use_layer_wise_balance: bool = True,
-    router_aux_loss_coef: float = 0.01,
     additional_config: dict = None,
 ):
     logger.info(f"Model type: {model_type}")
-    if model_type == "auto":
-        ConfigClass = transformers.AutoConfig
-        ModelClass = transformers.AutoModelForCausalLM
-    elif model_type == "mixtral2group":
-        ConfigClass = Mixtral2GroupConfig
-        ModelClass = Mixtral2GroupForCausalLM
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    ConfigClass = transformers.AutoConfig
+    ModelClass = transformers.AutoModelForCausalLM
 
     # Set RoPE scaling factor
     config = ConfigClass.from_pretrained(
@@ -300,9 +275,6 @@ def get_model(
         trust_remote_code=trust_remote_code,
     )
     config._attn_implementation = attn_impl
-    config.output_router_logits = output_router_logits
-    config.use_layer_wise_balance = use_layer_wise_balance
-    config.router_aux_loss_coef = router_aux_loss_coef
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     print(" max_position_embeddings : {}    --".format(orig_ctx_len))
     if orig_ctx_len and model_max_length > orig_ctx_len:
@@ -343,9 +315,6 @@ def get_model_and_tokenizer(
     attn_impl: str = "flash_attention_2",
     cache_dir: str = None,
     trust_remote_code: bool = False,
-    output_router_logits: bool = True,
-    use_layer_wise_balance: bool = True,
-    router_aux_loss_coef: float = 0.01,
     padding_side: str = "right",
     additional_config: dict = None,
     use_fast: bool = False,
@@ -368,9 +337,6 @@ def get_model_and_tokenizer(
         attn_impl=attn_impl,
         cache_dir=cache_dir,
         trust_remote_code=trust_remote_code,
-        output_router_logits=output_router_logits,
-        use_layer_wise_balance=use_layer_wise_balance,
-        router_aux_loss_coef=router_aux_loss_coef,
         additional_config=additional_config,
     )
 
@@ -383,34 +349,6 @@ def get_model_and_tokenizer(
 
     return model, tokenizer, generation_config
 
-
-class llamaTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
-        # """
-        # How the loss is computed by Trainer. By default, all models return the loss in the first element.
-
-        # Subclass and override for custom behavior.
-        # """
-        for name, param in model.named_parameters():
-            # logger.info(name, param.shape, param.numel())
-            # print("{} : {} : {}".format(name, param.shape, param.requires_grad))
-            param.requires_grad = True
-
-        if return_outputs:
-            loss, outputs = super().compute_loss(
-                model, inputs, return_outputs=return_outputs
-            )
-        else:
-            loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
-
-        for name, param in model.named_parameters():
-            if "block_mlp_moe" in name and "groups.1" in name:  ##  只 ft 專家
-                param.requires_grad = True
-                # print("block_mlp_moe  groups.1 {} : {} : {}".format(name, param.shape, param.requires_grad))
-            else:
-                param.requires_grad = False
-
-        return (loss, outputs) if return_outputs else loss
 
 
 def train():
@@ -449,9 +387,6 @@ def train():
         padding_side=model_args.padding_side,
         torch_dtype=model_args.torch_dtype,
         additional_config=model_args.additional_config,
-        output_router_logits=training_args.output_router_logits,
-        use_layer_wise_balance=training_args.use_layer_wise_balance,
-        router_aux_loss_coef=training_args.router_aux_loss_coef,
         attn_impl=model_args.attn_impl,
         model_max_length=training_args.model_max_length,
         cache_dir=training_args.cache_dir,
@@ -460,19 +395,12 @@ def train():
     for name, param in model.named_parameters():
         # logger.info(name, param.shape, param.numel())
         # print("{} : {} : {}".format(name, param.shape, param.requires_grad))
-        if "block_mlp_moe" in name and "groups.1" in name:  ##  只 ft 專家
-            param.requires_grad = True
-            # print("block_mlp_moe   {} : {} : {}".format(name, param.shape, param.requires_grad))
-        else:
-            param.requires_grad = False
+        param.requires_grad = True
         tot_params += param.numel()
-    logger.info(f"  groups.1     will trained!   --")
+    logger.info(f"  llama all parameters     will trained!   --")
     logger.info(f"Total model params: {tot_params}")
 
-    # if training_args.freeze_gate:
-    #     for name, param in model.named_parameters():
-    #         if "block_mlp_moe" in name and ".gate." in name:
-    #             param.requires_grad = False
+
 
     train_dataset = None
     ### 5. Load dataset
@@ -508,7 +436,7 @@ def train():
             'Accuracy': acc,
         }
 
-    trainer = llamaTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         data_collator=data_collator,

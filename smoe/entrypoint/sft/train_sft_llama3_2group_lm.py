@@ -22,7 +22,8 @@ import smoe.models.mixtral_2group.modeling_mixtral2group as ModelingMixtral2grou
 from smoe.models.mixtral_2group import Mixtral2GroupConfig, Mixtral2GroupForCausalLM
 from smoe.utils.conversation import Llama3ConversationTemplate
 
-# from datasets import DatasetDict, load_dataset, Dataset
+from sklearn.metrics import accuracy_score  ## , precision_recall_fscore_support
+# from datasets import load_metrix  ## DatasetDict, load_dataset, Dataset
 from smoe.utils.datasets.text_instruction_dataset import (
     TextInstructionDataCollator,
     load_text_instruction_datasets,
@@ -170,6 +171,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default=True,
         metadata={"help": "Whether to use router BL loss."},
     )
+    router_aux_loss_coef: float = field(
+        default=0.01,
+        metadata={"help": "the loss weight for the router balence loss"},
+    )
     save_final_ckpt: bool = field(
         default=True,
         metadata={"help": "Whether to save final checkpoint."},
@@ -239,6 +244,7 @@ def get_model(
     trust_remote_code: bool = False,
     output_router_logits: bool = True,
     use_layer_wise_balance: bool = True,
+    router_aux_loss_coef: float = 0.01,
     additional_config: dict = None,
 ):
     logger.info(f"Model type: {model_type}")
@@ -260,12 +266,13 @@ def get_model(
     config._attn_implementation = attn_impl
     config.output_router_logits = output_router_logits
     config.use_layer_wise_balance = use_layer_wise_balance
+    config.router_aux_loss_coef = router_aux_loss_coef
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     print(" max_position_embeddings : {}    --".format(orig_ctx_len))
     if orig_ctx_len and model_max_length > orig_ctx_len:
         scaling_factor = float(math.ceil(model_max_length / orig_ctx_len))
         config.rope_scaling = {"type": "linear", "factor": scaling_factor}
-    config.use_cache = True
+    config.use_cache = False
     if additional_config is not None:
         config.update(additional_config)
     logger.info("Config ready")
@@ -302,6 +309,7 @@ def get_model_and_tokenizer(
     trust_remote_code: bool = False,
     output_router_logits: bool = True,
     use_layer_wise_balance: bool = True,
+    router_aux_loss_coef: float = 0.01,
     padding_side: str = "right",
     additional_config: dict = None,
     use_fast: bool = False,
@@ -326,6 +334,7 @@ def get_model_and_tokenizer(
         trust_remote_code=trust_remote_code,
         output_router_logits=output_router_logits,
         use_layer_wise_balance=use_layer_wise_balance,
+        router_aux_loss_coef=router_aux_loss_coef,
         additional_config=additional_config,
     )
 
@@ -406,6 +415,7 @@ def train():
         additional_config=model_args.additional_config,
         output_router_logits=training_args.output_router_logits,
         use_layer_wise_balance=training_args.use_layer_wise_balance,
+        router_aux_loss_coef=training_args.router_aux_loss_coef,
         attn_impl=model_args.attn_impl,
         model_max_length=training_args.model_max_length,
         cache_dir=training_args.cache_dir,
