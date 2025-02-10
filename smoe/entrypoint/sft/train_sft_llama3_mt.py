@@ -16,6 +16,8 @@ from loguru import logger
 from torch.utils.data import Dataset
 from transformers import GenerationConfig, PreTrainedTokenizer, Trainer, set_seed
 from transformers.models.llama.tokenization_llama import LlamaTokenizer
+from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.llama import LlamaPreTrainedModel
 from transformers.trainer_pt_utils import LabelSmoother
 
 import smoe.models.mixtral_2group.modeling_mixtral2group as ModelingMixtral2groupResidual
@@ -269,12 +271,23 @@ def get_model(
     ModelClass = transformers.AutoModelForCausalLM
 
     # Set RoPE scaling factor
+    config_path = model_name_or_path + "/config_ft.json"
     config = ConfigClass.from_pretrained(
-        model_name_or_path,
-        cache_dir=cache_dir,
-        trust_remote_code=trust_remote_code,
+        config_path,
     )
-    config._attn_implementation = attn_impl
+    # # 加载模型配置
+    # config = LlamaConfig.from_pretrained(model_name_or_path)  # 替换为你的模型路径
+
+    # 修改 rope_scaling 配置
+    if hasattr(config, "rope_scaling"):
+        rope_scaling = config.rope_scaling
+        if isinstance(rope_scaling, dict):
+            # 只保留 type 和 factor 字段
+            config.rope_scaling = {
+                "type": rope_scaling.get("type", "linear"),  # 默认类型为 linear
+                "factor": rope_scaling.get("factor", 1.0)   # 默认因子为 1.0
+            }
+    # config._attn_implementation = attn_impl
     orig_ctx_len = getattr(config, "max_position_embeddings", None)
     print(" max_position_embeddings : {}    --".format(orig_ctx_len))
     if orig_ctx_len and model_max_length > orig_ctx_len:
@@ -448,7 +461,6 @@ def train():
     logger.info("trainer ready")
 
     # 8. Training
-    model.set_groups_used([0, 1])  ## only first group experts will used in training
     if training_args.do_train:
         # import pdb;pdb.set_trace()
         if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
