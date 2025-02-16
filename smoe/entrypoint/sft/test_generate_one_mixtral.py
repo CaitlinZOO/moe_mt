@@ -48,17 +48,27 @@ print("----\nmodel_name_or_path: \n {}\n-----".format(model_name_or_path))
 #     device_map='balanced',
 #     max_memory=max_memory,
 # )
-config = Mixtral2GroupConfig.from_pretrained(model_name_or_path)
-config._attn_implementation = "flash_attention_2"
-config.output_router_logits = True
-model = Mixtral2GroupForCausalLM.from_pretrained(
+config = AutoConfig.from_pretrained(model_name_or_path)
+model = AutoModelForCausalLM.from_pretrained(
      model_name_or_path,
     config=config,
     torch_dtype="auto",
     device_map='balanced',
     max_memory=max_memory
 )
-model.set_groups_used([0, 1])  ## 运行mt任务
+
+tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+tt = tokenizer.encode(text="\n\n")
+if tokenizer.pad_token is None:
+        if tokenizer.unk_token is not None:
+            tokenizer.pad_token = tokenizer.unk_token
+        else:
+            tokenizer.pad_token = tokenizer.eos_token
+if tokenizer.pad_token_id is None:
+        if tokenizer.unk_token_id is not None:
+            tokenizer.pad_token_id = tokenizer.unk_token_id
+        else:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
 
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 tt = tokenizer.encode(text="\n\n")

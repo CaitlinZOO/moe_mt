@@ -6,7 +6,7 @@
 #expt_dir="$(dirname "$(readlink -f "$0")")"
 
 
-ROOT=/home/zhanglinlin
+ROOT=/home/ubuntu   ## /home/zhanglinlin /home/ubuntu
 cd ${ROOT}/pro/MoE/moe_mt
 echo "进入 ${ROOT}/pro/MoE/moe_mt"  ## /data/zhanglinlin/pro/MoE/moe_mt
 
@@ -32,10 +32,10 @@ export PATH=/usr/local/cuda/bin:$PATH
 
 
 
-  model_path="/home/zhanglinlin/models/llama/Meta-Llama-3.2-1B-Instruct"
+  model_path="${ROOT}/models/llama/Meta-Llama-3.2-1B-Instruct"
 
-  num_experts_group0=4
-  num_experts_group1=4
+  num_experts_group0=2
+  num_experts_group1=2
   top_k=1
   scale_factor=4.0   # we suggest this value to be 4.0 for 8 experts
   num_moe_insert_layers=4   ## insert MoE experts per 4 layers
@@ -43,9 +43,9 @@ export PATH=/usr/local/cuda/bin:$PATH
 
   folder_name="group0-${num_experts_group0}experts-group1-${num_experts_group0}experts"
   split_folder_name="2group-${num_experts_group0}-${num_experts_group0}expert-MLP-MoE"
-  save_folder_name="Llama3.2-1B-${split_folder_name}-Top${top_k}-Scale${scale_factor}-Insert${num_moe_insert_layers}_use-fft"
+  save_folder_name="Llama3.2-1B-${split_folder_name}-Top${top_k}-Scale${scale_factor}-Insert${num_moe_insert_layers}_use-fft" #_use-fft
 
-  save_path="/home/zhanglinlin/outputs/moe_mt/converted_models/${save_folder_name}"
+  save_path="${ROOT}/outputs/moe_mt/converted_models/${save_folder_name}"
 
 
 
@@ -65,7 +65,7 @@ port=$(( 104 + 26300 ))
 # python -m torch.distributed.run --nproc_per_node=4 --nnode=$WORLD_SIZE --node_rank=$RANK --master_addr=$MASTER_ADDR --master_port=${port} \
 # /home/zhanglinlin/anaconda3/envs/smoe/bin/python  train.py \
 #     --deepspeed config/dp_config_zero1.json \
-  python smoe/entrypoint/expert_construction/convert/convert_mixtral_2group.py \
+ python smoe/entrypoint/expert_construction/convert/convert_mixtral_2group.py \
     --model_path ${model_path} \
     --save_path ${save_path} \
     --num_experts_group0 ${num_experts_group0} \

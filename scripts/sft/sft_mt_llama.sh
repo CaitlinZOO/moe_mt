@@ -6,7 +6,7 @@
 #expt_dir="$(dirname "$(readlink -f "$0")")"
 
 
-ROOT=/home/zhanglinlin   ## /home/zhanglinlin /home/ubuntu
+ROOT=/home/ubuntu   ## /home/zhanglinlin /home/ubuntu
 cd ${ROOT}/pro/MoE/moe_mt
 echo "进入 ${ROOT}/pro/MoE/moe_mt"  ## /mnt/alitranx-nas/users/zll240651/pro/LLM/blsp2
 
@@ -41,6 +41,7 @@ export PATH=/usr/local/cuda/bin:$PATH
     train_dataset_dir_or_path="${ROOT}/zll/mt/wmt18_x_en-t0.json"
     train_dataset_dir_or_path="${ROOT}/zll/mt/wmt18_x_en-1of3.json"
     train_dataset_dir_or_path="${ROOT}/zll/mt/wmt18_cs-de-ru_en.json"
+    train_dataset_dir_or_path="${ROOT}/zll/mt/wmt18_0211.json" ## 1/3 x2x   wmt18_x2-1of3
     ## 实际没用到eval_data  那几个参数去掉，不设置就可以
     eval_dataset_dir_or_path="/home/zhanglinlin/zll/en-es/tst-COMMON_jst-t.tsv|/home/zhanglinlin/zll/en-es/tst-COMMON_jst-t.tsv"
     ## 需要第一阶段的model,    还要把几个tokenizer_*.json等 从转换的模型那儿复制到路径下
@@ -55,7 +56,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 
     comment="Llama3.2-1B finetune: all parameters "
     base_dir="${ROOT}/outputs/moe_mt/llama_ft"
-    output_dir="${base_dir}/sft_mt/wmt18_cs-de-ru_en/Llama-1B"
+    output_dir="${base_dir}/sft_mt/wmt18_x2-1of3/Llama-1B"
     data_dir=${output_dir}/data
     mkdir -p $output_dir $data_dir ${output_dir}/code
     cp -r ${ROOT}/pro/MoE/moe_mt/smoe ${output_dir}/code
@@ -64,7 +65,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 
 
 
-GPUS="0,1,2,3"
+GPUS="0,1,2,3,4,5,6,7"
 ARR_GPU=(${GPUS//,/ })
 NUM_GPU=${#ARR_GPU[@]}
 
@@ -85,10 +86,10 @@ do
     echo "这是第 $i 次循环"
 
 ## 单机多卡设置
-python -m torch.distributed.run --nproc_per_node=4 --nnode=1 --master_port=${port} \
+python -m torch.distributed.run --nproc_per_node=8 --nnode=1 --master_port=${port} \
     smoe/entrypoint/sft/train_sft_llama3_mt.py \
             --do_train \
-            --eval_strategy no \
+            --evaluation_strategy no \
             --model_name_or_path $model_name_or_path \
             \
             --dataset_save_dir ${data_dir} \
@@ -125,7 +126,7 @@ python -m torch.distributed.run --nproc_per_node=4 --nnode=1 --master_port=${por
             --eval_steps 100 \
             --model_max_length 1024 \
             --gradient_checkpointing True \
-            --save_only_model False   | tee -a ${output_dir}/train-bsz4x24-t0.log
+            --save_only_model False   | tee -a ${output_dir}/train-bsz8x24-t0.log
     # --disable_tqdm True \
   ##--tf32 True \
 #   --save_strategy steps \ steps epoch

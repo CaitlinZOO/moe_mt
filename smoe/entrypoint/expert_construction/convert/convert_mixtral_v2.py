@@ -20,6 +20,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     print(args, "\n")
+    # import pdb; pdb.set_trace()
 
     convert_safetensors(
         args.model_path,

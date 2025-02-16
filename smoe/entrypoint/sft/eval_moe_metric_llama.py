@@ -132,11 +132,11 @@ def get_eb_answer(text, model):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--gen_dir", type=str, default="/home/ubuntu/zll/mt/wmt_test/llama3_mixtral2group/output/cs-de-ru_en/",
+        "--gen_dir", type=str, default="zll/mt/wmt_test/llama3_ft/output/cs-de-ru_en/",
         help="Path to the output file", required=True
     )
     parser.add_argument(
-        "--result_file", type=str, default="/home/ubuntu/zll/mt/wmt_test/llama3_mixtral2group/output/cs-de-ru_en/result.txt",
+        "--result_file", type=str, default="zll/mt/wmt_test/llama3_ft/output/cs-de-ru_en/result.txt",
         help="Path to the output file", required=True
     )
     args = parser.parse_args()
@@ -150,7 +150,7 @@ def main():
         # 'qwen1.5',
         'llama3_mixtral2group',
     ]
-    total = 20962*2 ## (2983 + 2998 + 3000)*2 # 20962*len(models)
+    total = (2983 + 2998 + 3000)*2 # 20962*len(models)
     pbar = tqdm(total=int(total), desc='Progress', unit='item')
     for llm in models:
         # dir_path = f'../baseline/output/{llm}/'
@@ -224,8 +224,7 @@ def main():
                         
                         bleu_f = all_bleu / float(line_n)
                         meteor_f = all_meteor / float(line_n)
-                        res_file.write(f"{llm}\t{item['filename']}\tmeteor: \tbleu: \n")
-                        res_file.write(f"{llm}\t{item['filename']}\t{meteor_f} \t{bleu_f} \n")
+                        res_file.write(f"{llm}\t{item['filename']}\tbleu: {bleu_f}\tmeteor: {meteor_f}\n")
 
     pbar.close()
 

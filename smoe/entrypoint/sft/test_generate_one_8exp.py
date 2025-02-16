@@ -139,6 +139,9 @@ def main():
                 data = json.load(f)  # 读取 JSON 文件（假设是 JSON 数组）
                 # print(data)
                 for i, item in  enumerate(data):
+                    if i >=100 :
+                         break
+                    
                     print(i ,item)
                     print('====')
                     # exit()

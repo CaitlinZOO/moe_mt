@@ -58,7 +58,7 @@ model = Mixtral2GroupForCausalLM.from_pretrained(
     device_map='balanced',
     max_memory=max_memory
 )
-model.set_groups_used([0, 1])  ## 运行mt任务
+model.set_groups_used([0])  ## 运行mt任务 , 1
 
 tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
 tt = tokenizer.encode(text="\n\n")
@@ -139,8 +139,11 @@ def main():
                 data = json.load(f)  # 读取 JSON 文件（假设是 JSON 数组）
                 # print(data)
                 for i, item in  enumerate(data):
-                    print(i ,item)
-                    print('====')
+                    if i >=100 :
+                         break
+                    
+                    # print(i ,item)
+                    print('第 {} 个句子 ===='.format(i))
                     # exit()
 
 
@@ -184,7 +187,8 @@ def main():
                         )
                     # response = tokenizer.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
                     response_0 = tokenizer.batch_decode(generate_ids_0, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
-                    print(response_0+"\n======")
+                    # print(response_0)
+                    print("======")
                     # import pdb; pdb.set_trace()
                     # response = response[len(prompt):].strip().split('\n')[0]
                     # response_0 = response_0[len(prompt_0):].removeprefix('<|begin_of_text|>').split("<|eot_id|>")[0]

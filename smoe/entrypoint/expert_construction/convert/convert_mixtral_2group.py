@@ -20,10 +20,12 @@ if __name__ == "__main__":
     parser.add_argument('--scale_factor', type=float, default=1.0)
     parser.add_argument('--num_moe_insert_layers', type=int, default=4)
     parser.add_argument('--moe_implementation_type', type=str, default='modulelist', choices=["modulelist"])
-    parser.add_argument('--use_fft', type=bool, default=True)
+    parser.add_argument('--use_fft', type=bool, default=True) # , default=True
 
     args = parser.parse_args()
+    # args.use_fft = False
     print(args, "\n")
+    # import pdb; pdb.set_trace()
 
     convert_safetensors(
         args.model_path,

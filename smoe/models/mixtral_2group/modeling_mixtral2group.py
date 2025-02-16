@@ -2054,10 +2054,12 @@ class Mixtral2GroupMoeBlock(nn.Module):
 
             # print("gate_hidden_states 3 : {} \n {}".format(gate_hidden_states.shape, gate_hidden_states))
         for group_idx in groups_used:  ## 不同的group
+            # print("第 {} group:".format(group_idx))
             router_logits = self.groups[group_idx].gate(gate_hidden_states) ## [1774 * 4]
             all_group_router_logits.append(router_logits)
             scores = F.softmax(router_logits, dim=1, dtype=torch.float) ## [1774 * 4]
             routing_weights, selected_experts = torch.topk(scores, self.top_k, dim=-1) ## [1774 * 1]选出来的top1最大的scores是[[0.9763],[0.9923],[0.9361],...,[0.8717],[0.8717],[0.8717]]， [1774 * 1]选出来的top1最大的scores的idx是[[0],[0],[2],...,[2],[2],[2]]
+            # print("选择的expert id (bsz*长度，这里bsz是1，故最后一个是当前token):\t{}".format(selected_experts[-1]))
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True) ### 选top1，会让[1774 * 1]的[[0.9763],[0.9923],[0.9361],...,[0.8717],[0.8717],[0.8717]]变成[1774 * 1]的[[1.],[1.],[1.],...,[1.],[1.],[1.]]
             # we cast back to the input dtype
             routing_weights = routing_weights.to(hidden_states.dtype)
@@ -2457,7 +2459,11 @@ class Mixtral2GroupModel(Mixtral2GroupPreTrainedModel):
         all_attn_router_logits = () if output_router_logits else None  # 🔍
         next_decoder_cache = None
 
+        # layer_id = 0
         for decoder_layer in self.layers:
+            # print("第 {} 层：".format(layer_id))
+            # layer_id += 1
+
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
